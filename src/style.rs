@@ -2,6 +2,21 @@ use std::fmt;
 use std::str::FromStr;
 
 /// SQL formatting style.
+///
+/// Each variant implements a different layout strategy for SQL statements.
+/// Use [`Style::default()`] for the river style, or parse from a string:
+///
+/// ```
+/// use libpgfmt::style::Style;
+///
+/// let style: Style = "mozilla".parse().unwrap();
+/// assert_eq!(style, Style::Mozilla);
+///
+/// // List all available styles
+/// for s in Style::ALL {
+///     println!("{s}");
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Style {
     /// Simon Holywell's river style — keywords right-aligned to form a visual river.

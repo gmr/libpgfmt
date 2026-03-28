@@ -1,3 +1,52 @@
+//! A Rust library for formatting PostgreSQL SQL and PL/pgSQL.
+//!
+//! Uses [tree-sitter-postgres](https://crates.io/crates/tree-sitter-postgres)
+//! for parsing, supporting 7 formatting styles based on popular SQL style guides.
+//!
+//! # Quick start
+//!
+//! ```
+//! use libpgfmt::{format, style::Style};
+//!
+//! let sql = "SELECT id, name FROM users WHERE active = TRUE";
+//! let formatted = format(sql, Style::River).unwrap();
+//! assert_eq!(formatted, "SELECT id,\n       name\n  FROM users\n WHERE active = TRUE;");
+//! ```
+//!
+//! # Styles
+//!
+//! The [`Style`] enum provides 7 formatting variants:
+//!
+//! - **River** (default) — keywords right-aligned to form a visual river
+//! - **Mozilla** — keywords left-aligned, content indented 4 spaces
+//! - **Aweber** — river with JOINs in keyword alignment
+//! - **Dbt** — lowercase keywords, blank lines between clauses
+//! - **Gitlab** — 2-space indent, uppercase keywords
+//! - **Kickstarter** — 2-space indent, compact JOINs
+//! - **Mattmc3** — lowercase river with leading commas
+//!
+//! Styles can be parsed from strings:
+//!
+//! ```
+//! use libpgfmt::style::Style;
+//!
+//! let style: Style = "dbt".parse().unwrap();
+//! assert_eq!(style, Style::Dbt);
+//! ```
+//!
+//! # PL/pgSQL
+//!
+//! Format PL/pgSQL function bodies (the content between `$$` delimiters)
+//! with [`format_plpgsql`]:
+//!
+//! ```
+//! use libpgfmt::{format_plpgsql, style::Style};
+//!
+//! let body = "BEGIN RETURN 1; END";
+//! let formatted = format_plpgsql(body, Style::River).unwrap();
+//! assert_eq!(formatted, "BEGIN\n  RETURN 1;\nEND;");
+//! ```
+
 pub mod error;
 mod formatter;
 mod node_helpers;
@@ -13,6 +62,26 @@ use tree_sitter_postgres::{LANGUAGE, LANGUAGE_PLPGSQL};
 ///
 /// Input may contain multiple semicolon-separated statements.
 /// Statements without trailing semicolons are handled gracefully.
+///
+/// # Examples
+///
+/// ```
+/// use libpgfmt::{format, style::Style};
+///
+/// // River style (default)
+/// let result = format("SELECT id FROM users WHERE active = TRUE", Style::River).unwrap();
+/// assert_eq!(result, "SELECT id\n  FROM users\n WHERE active = TRUE;");
+///
+/// // dbt style (lowercase, blank lines)
+/// let result = format("SELECT id FROM users", Style::Dbt).unwrap();
+/// assert_eq!(result, "select id\n\nfrom users;");
+/// ```
+///
+/// # Errors
+///
+/// Returns [`FormatError::Syntax`] if the input contains a syntax error that
+/// prevents formatting, or [`FormatError::Parser`] if the tree-sitter parser
+/// cannot be initialized.
 pub fn format(sql: &str, style: Style) -> Result<String, FormatError> {
     let trimmed = sql.trim();
     if trimmed.is_empty() {
@@ -53,6 +122,21 @@ pub fn format(sql: &str, style: Style) -> Result<String, FormatError> {
 ///
 /// The input should be the body of a PL/pgSQL function (the content between
 /// the dollar-quote delimiters, typically starting with DECLARE or BEGIN).
+///
+/// # Examples
+///
+/// ```
+/// use libpgfmt::{format_plpgsql, style::Style};
+///
+/// let body = "BEGIN RETURN 1; END";
+/// let formatted = format_plpgsql(body, Style::River).unwrap();
+/// assert_eq!(formatted, "BEGIN\n  RETURN 1;\nEND;");
+/// ```
+///
+/// # Errors
+///
+/// Returns [`FormatError::Syntax`] if the PL/pgSQL body contains a syntax
+/// error, or [`FormatError::Parser`] if the parser cannot be initialized.
 pub fn format_plpgsql(code: &str, style: Style) -> Result<String, FormatError> {
     let trimmed = code.trim();
     if trimmed.is_empty() {
