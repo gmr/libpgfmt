@@ -1,0 +1,17 @@
+[package]
+name = "libpgfmt"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A Rust library for formatting PostgreSQL SQL and PL/pgSQL"
+license = "BSD-3-Clause"
+repository = "https://github.com/gmr/libpgfmt"
+keywords = ["postgresql", "sql", "formatter", "plpgsql"]
+categories = ["text-processing", "development-tools"]
+
+[dependencies]
+tree-sitter = "0.26"
+tree-sitter-postgres = "0.1"
+
+[dev-dependencies]
+pretty_assertions = "1"
