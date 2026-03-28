@@ -19,8 +19,12 @@ pub fn format(sql: &str, style: Style) -> Result<String, FormatError> {
         return Ok(String::new());
     }
     // The grammar requires trailing semicolons; ensure they are present.
+    // If the input ends with a line comment (--), append the semicolon on a
+    // new line so it doesn't become part of the comment.
     let input = if trimmed.ends_with(';') {
         trimmed.to_string()
+    } else if trimmed.lines().last().is_some_and(|l| l.contains("--")) {
+        format!("{trimmed}\n;")
     } else {
         format!("{trimmed};")
     };

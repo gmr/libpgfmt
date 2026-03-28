@@ -37,8 +37,11 @@ set-version version:
         echo "Version is already {{version}}"
         exit 1
     fi
-    sed -i '' 's/^version = ".*"/version = "{{version}}"/' Cargo.toml
-    cargo check 2>/dev/null
+    # Use a temp file for portability (BSD sed -i requires arg, GNU doesn't)
+    tmp=$(mktemp)
+    sed 's/^version = ".*"/version = "{{version}}"/' Cargo.toml > "$tmp"
+    mv "$tmp" Cargo.toml
+    cargo check
     echo "Updated version: $current -> {{version}}"
 
 # Tag a release (sets version, commits, tags, pushes)

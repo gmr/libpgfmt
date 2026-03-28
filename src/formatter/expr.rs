@@ -4,6 +4,120 @@ use tree_sitter::Node;
 
 use super::Formatter;
 
+/// SQL built-in aggregate and function names that should follow keyword casing.
+/// User-defined function names are preserved as-is.
+const SQL_BUILTIN_FUNCTIONS: &[&str] = &[
+    "abs",
+    "avg",
+    "array_agg",
+    "bit_and",
+    "bit_or",
+    "bool_and",
+    "bool_or",
+    "cardinality",
+    "cast",
+    "ceil",
+    "ceiling",
+    "char_length",
+    "character_length",
+    "coalesce",
+    "concat",
+    "concat_ws",
+    "convert",
+    "corr",
+    "count",
+    "covar_pop",
+    "covar_samp",
+    "cume_dist",
+    "current_date",
+    "current_time",
+    "current_timestamp",
+    "date_part",
+    "date_trunc",
+    "dense_rank",
+    "every",
+    "exists",
+    "exp",
+    "extract",
+    "first_value",
+    "floor",
+    "format",
+    "generate_series",
+    "greatest",
+    "json_agg",
+    "json_object_agg",
+    "jsonb_agg",
+    "jsonb_object_agg",
+    "lag",
+    "last_value",
+    "lead",
+    "least",
+    "left",
+    "length",
+    "ln",
+    "localtime",
+    "localtimestamp",
+    "log",
+    "lower",
+    "lpad",
+    "ltrim",
+    "max",
+    "min",
+    "mod",
+    "now",
+    "nth_value",
+    "ntile",
+    "nullif",
+    "octet_length",
+    "overlay",
+    "percent_rank",
+    "position",
+    "power",
+    "rank",
+    "regexp_matches",
+    "regexp_replace",
+    "regexp_split_to_array",
+    "regexp_split_to_table",
+    "repeat",
+    "replace",
+    "reverse",
+    "right",
+    "round",
+    "row_number",
+    "rpad",
+    "rtrim",
+    "sign",
+    "split_part",
+    "sqrt",
+    "stddev",
+    "stddev_pop",
+    "stddev_samp",
+    "string_agg",
+    "strpos",
+    "substr",
+    "substring",
+    "sum",
+    "to_char",
+    "to_date",
+    "to_number",
+    "to_timestamp",
+    "translate",
+    "trim",
+    "trunc",
+    "unnest",
+    "upper",
+    "var_pop",
+    "var_samp",
+    "variance",
+    "width_bucket",
+    "xmlagg",
+];
+
+fn is_sql_builtin_function(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    SQL_BUILTIN_FUNCTIONS.contains(&lower.as_str())
+}
+
 /// PostgreSQL internal type name → standard SQL type name mapping.
 const PG_TYPE_MAP: &[(&str, &str)] = &[
     ("bigint", "BIGINT"),
@@ -409,7 +523,13 @@ impl<'a> Formatter<'a> {
             }
         }
 
-        let upper_name = self.kw(&name);
+        // Apply keyword casing only to SQL built-in functions; preserve
+        // user-defined function names as-is.
+        let cased_name = if is_sql_builtin_function(&name) {
+            self.kw(&name)
+        } else {
+            name
+        };
         let inner = if has_star {
             "*".to_string()
         } else if has_distinct {
@@ -418,7 +538,7 @@ impl<'a> Formatter<'a> {
             args
         };
 
-        let mut result = format!("{upper_name}({inner})");
+        let mut result = format!("{cased_name}({inner})");
 
         if let Some(over) = over_clause {
             result.push(' ');

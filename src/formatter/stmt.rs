@@ -874,13 +874,103 @@ impl<'a> Formatter<'a> {
     // format_where_river and format_where_left_aligned are defined in select.rs
 }
 
+/// Collapse runs of whitespace to single spaces, but preserve whitespace
+/// inside single-quoted strings, double-quoted identifiers, and dollar-quoted
+/// strings so that literal content is not altered.
 fn normalize_whitespace(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
-    for (i, word) in s.split_whitespace().enumerate() {
-        if i > 0 {
-            result.push(' ');
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+    let mut in_space_run = false;
+
+    while i < len {
+        let ch = chars[i];
+
+        // Single-quoted string.
+        if ch == '\'' {
+            in_space_run = false;
+            result.push(ch);
+            i += 1;
+            while i < len {
+                result.push(chars[i]);
+                if chars[i] == '\'' {
+                    i += 1;
+                    if i < len && chars[i] == '\'' {
+                        result.push(chars[i]);
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            continue;
         }
-        result.push_str(word);
+
+        // Double-quoted identifier.
+        if ch == '"' {
+            in_space_run = false;
+            result.push(ch);
+            i += 1;
+            while i < len {
+                result.push(chars[i]);
+                if chars[i] == '"' {
+                    i += 1;
+                    if i < len && chars[i] == '"' {
+                        result.push(chars[i]);
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            continue;
+        }
+
+        // Dollar-quoted string.
+        if ch == '$' {
+            let tag_start = i;
+            let mut tag_end = i + 1;
+            while tag_end < len && (chars[tag_end].is_ascii_alphanumeric() || chars[tag_end] == '_')
+            {
+                tag_end += 1;
+            }
+            if tag_end < len && chars[tag_end] == '$' {
+                in_space_run = false;
+                let tag: String = chars[tag_start..=tag_end].iter().collect();
+                result.push_str(&tag);
+                i = tag_end + 1;
+                while i < len {
+                    let remaining: String = chars[i..].iter().collect();
+                    if remaining.starts_with(&tag) {
+                        result.push_str(&tag);
+                        i += tag.len();
+                        break;
+                    }
+                    result.push(chars[i]);
+                    i += 1;
+                }
+                continue;
+            }
+        }
+
+        // Normal whitespace collapsing.
+        if ch.is_whitespace() {
+            if !in_space_run && !result.is_empty() {
+                result.push(' ');
+            }
+            in_space_run = true;
+            i += 1;
+        } else {
+            in_space_run = false;
+            result.push(ch);
+            i += 1;
+        }
     }
-    result
+
+    result.trim().to_string()
 }
