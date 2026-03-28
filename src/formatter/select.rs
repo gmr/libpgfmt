@@ -543,13 +543,22 @@ impl<'a> Formatter<'a> {
             if tables.is_empty() {
                 return;
             }
+            let has_multiple_non_join = tables
+                .iter()
+                .filter(|t| !(t.kind() == "table_ref" && t.has_child("joined_table")))
+                .count()
+                > 1;
             for (i, table) in tables.iter().enumerate() {
                 if table.kind() == "table_ref" && table.has_child("joined_table") {
                     // Table with JOINs.
                     let jt = table.find_child("joined_table").unwrap();
                     self.format_joined_table_river(jt, width, i == 0, lines);
                 } else {
-                    let text = self.format_table_ref(*table);
+                    let mut text = self.format_table_ref(*table);
+                    // Append comma between non-join tables in a comma-separated FROM list.
+                    if has_multiple_non_join && i < tables.len() - 1 {
+                        text = format!("{text},");
+                    }
                     if i == 0 {
                         lines.push(self.river_line(&self.kw("FROM"), &text, width));
                     } else {
@@ -829,24 +838,24 @@ impl<'a> Formatter<'a> {
         let mut current_op = String::new();
         let mut paren_depth: u32 = 0;
         let mut in_between = false;
-        let bytes = full_text.as_bytes();
-        let len = bytes.len();
+        let chars: Vec<char> = full_text.chars().collect();
+        let len = chars.len();
         let mut i = 0;
         let mut buf = String::new();
 
         while i < len {
-            let ch = bytes[i] as char;
+            let ch = chars[i];
 
             // Single-quoted string: 'text' with '' as escape.
             if ch == '\'' {
                 buf.push(ch);
                 i += 1;
                 while i < len {
-                    let c = bytes[i] as char;
+                    let c = chars[i];
                     buf.push(c);
                     i += 1;
                     if c == '\'' {
-                        if i < len && bytes[i] == b'\'' {
+                        if i < len && chars[i] == '\'' {
                             buf.push('\'');
                             i += 1;
                         } else {
@@ -862,11 +871,11 @@ impl<'a> Formatter<'a> {
                 buf.push(ch);
                 i += 1;
                 while i < len {
-                    let c = bytes[i] as char;
+                    let c = chars[i];
                     buf.push(c);
                     i += 1;
                     if c == '"' {
-                        if i < len && bytes[i] == b'"' {
+                        if i < len && chars[i] == '"' {
                             buf.push('"');
                             i += 1;
                         } else {
@@ -882,22 +891,25 @@ impl<'a> Formatter<'a> {
                 let tag_start = i;
                 let mut tag_end = i + 1;
                 while tag_end < len
-                    && (bytes[tag_end].is_ascii_alphanumeric() || bytes[tag_end] == b'_')
+                    && (chars[tag_end].is_ascii_alphanumeric() || chars[tag_end] == '_')
                 {
                     tag_end += 1;
                 }
-                if tag_end < len && bytes[tag_end] == b'$' {
-                    let tag = &full_text[tag_start..=tag_end];
-                    buf.push_str(tag);
+                if tag_end < len && chars[tag_end] == '$' {
+                    let tag: String = chars[tag_start..=tag_end].iter().collect();
+                    buf.push_str(&tag);
                     i = tag_end + 1;
                     // Scan for closing tag.
                     while i < len {
-                        if bytes[i] == b'$' && full_text[i..].starts_with(tag) {
-                            buf.push_str(tag);
-                            i += tag.len();
-                            break;
+                        if chars[i] == '$' {
+                            let remaining: String = chars[i..].iter().collect();
+                            if remaining.starts_with(&tag) {
+                                buf.push_str(&tag);
+                                i += tag.len();
+                                break;
+                            }
                         }
-                        buf.push(bytes[i] as char);
+                        buf.push(chars[i]);
                         i += 1;
                     }
                     continue;
@@ -918,7 +930,7 @@ impl<'a> Formatter<'a> {
             }
 
             // Check for keyword at word boundary (next char is space or end).
-            let next_is_boundary = i >= len || bytes[i] == b' ';
+            let next_is_boundary = i >= len || chars[i] == ' ';
             if !next_is_boundary {
                 continue;
             }
@@ -948,7 +960,7 @@ impl<'a> Formatter<'a> {
                 current_op = kw.to_string();
                 buf.clear();
                 // Skip space after the keyword.
-                if i < len && bytes[i] == b' ' {
+                if i < len && chars[i] == ' ' {
                     i += 1;
                 }
             }
@@ -1143,13 +1155,22 @@ impl<'a> Formatter<'a> {
                 return;
             }
 
+            let has_multiple_non_join = tables
+                .iter()
+                .filter(|t| !(t.kind() == "table_ref" && t.has_child("joined_table")))
+                .count()
+                > 1;
+
             // Check if any table has joins.
             let first = tables[0];
             if first.kind() == "table_ref" && first.has_child("joined_table") {
                 let jt = first.find_child("joined_table").unwrap();
                 self.format_joined_table_left_aligned(jt, lines, true);
             } else {
-                let text = self.format_table_ref(first);
+                let mut text = self.format_table_ref(first);
+                if has_multiple_non_join && tables.len() > 1 {
+                    text = format!("{text},");
+                }
                 if tables.len() == 1 && !first.has_child("joined_table") {
                     lines.push(format!("{} {text}", self.kw("FROM")));
                 } else {
@@ -1158,12 +1179,16 @@ impl<'a> Formatter<'a> {
                 }
             }
 
-            for table in &tables[1..] {
+            for (i, table) in tables[1..].iter().enumerate() {
                 if table.kind() == "table_ref" && table.has_child("joined_table") {
                     let jt = table.find_child("joined_table").unwrap();
                     self.format_joined_table_left_aligned(jt, lines, false);
                 } else {
-                    let text = self.format_table_ref(*table);
+                    let mut text = self.format_table_ref(*table);
+                    // Append comma if not the last non-join table.
+                    if has_multiple_non_join && i < tables.len() - 2 {
+                        text = format!("{text},");
+                    }
                     lines.push(format!("{indent}{text}"));
                 }
             }
@@ -1414,14 +1439,31 @@ impl<'a> Formatter<'a> {
             .map(|n| self.format_expr(n))
             .unwrap_or_default();
 
-        let mut body = String::new();
-        if let Some(prep) = node.find_child("PreparableStmt")
-            && let Some(select) = prep.find_child("SelectStmt")
-        {
-            body = self.format_select_stmt(select);
-        }
+        let body = self.format_cte_body(node);
 
         format!("{name} {} (\n{body}\n)", self.kw("AS"))
+    }
+
+    /// Extract and format the body of a CTE, handling SELECT, INSERT, UPDATE,
+    /// DELETE, and any other PreparableStmt type.
+    fn format_cte_body(&self, node: Node<'a>) -> String {
+        if let Some(prep) = node.find_child("PreparableStmt") {
+            if let Some(select) = prep.find_child("SelectStmt") {
+                return self.format_select_stmt(select);
+            }
+            if let Some(insert) = prep.find_child("InsertStmt") {
+                return self.format_insert_stmt(insert);
+            }
+            if let Some(update) = prep.find_child("UpdateStmt") {
+                return self.format_update_stmt(update);
+            }
+            if let Some(delete) = prep.find_child("DeleteStmt") {
+                return self.format_delete_stmt(delete);
+            }
+            // Fallback: return the raw text of the PreparableStmt.
+            return self.text(prep).trim().to_string();
+        }
+        String::new()
     }
 
     fn format_with_clause_left(&self, node: Node<'a>) -> String {
@@ -1443,12 +1485,7 @@ impl<'a> Formatter<'a> {
                     .map(|n| self.format_expr(n))
                     .unwrap_or_default();
 
-                let mut body = String::new();
-                if let Some(prep) = cte.find_child("PreparableStmt")
-                    && let Some(select) = prep.find_child("SelectStmt")
-                {
-                    body = self.format_select_stmt(select);
-                }
+                let body = self.format_cte_body(*cte);
 
                 let indented_body = body
                     .lines()

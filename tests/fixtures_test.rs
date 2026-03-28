@@ -202,6 +202,11 @@ fn mozilla_create_table() {
     run_fixture(Style::Mozilla, "create_table");
 }
 
+#[test]
+fn mozilla_select_using_join() {
+    run_fixture(Style::Mozilla, "select_using_join");
+}
+
 // ── AWeber fixtures ─────────────────────────────────────────────────────
 
 #[test]

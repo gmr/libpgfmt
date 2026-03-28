@@ -344,20 +344,30 @@ impl<'a> Formatter<'a> {
         let mut parts = vec![self.kw("RAISE")];
 
         let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
-            match child.kind() {
-                "kw_raise" => {} // already handled
-                "raise_level" => {
-                    let level = self.text(child).trim();
-                    parts.push(self.kw(level));
+        for child in node.children(&mut cursor) {
+            if child.is_named() {
+                match child.kind() {
+                    "kw_raise" => {} // already handled
+                    "raise_level" => {
+                        let level = self.text(child).trim();
+                        parts.push(self.kw(level));
+                    }
+                    "string_literal" => {
+                        parts.push(self.text(child).to_string());
+                    }
+                    "sql_expression" => {
+                        parts.push(self.text(child).trim().to_string());
+                    }
+                    _ => {}
                 }
-                "string_literal" => {
-                    parts.push(self.text(child).to_string());
+            } else {
+                let text = self.text(child).trim();
+                if text == "," {
+                    // Append comma to the previous part instead of adding a separate token.
+                    if let Some(last) = parts.last_mut() {
+                        last.push(',');
+                    }
                 }
-                "sql_expression" => {
-                    parts.push(self.text(child).trim().to_string());
-                }
-                _ => {}
             }
         }
 

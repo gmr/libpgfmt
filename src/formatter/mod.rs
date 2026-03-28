@@ -169,7 +169,13 @@ impl<'a> Formatter<'a> {
     /// Format a PL/pgSQL root node.
     pub fn format_plpgsql_root(&self, root: Node<'a>) -> Result<String, FormatError> {
         if let Some(block) = root.find_child("pl_block") {
-            return Ok(self.format_plpgsql_block(block, 0));
+            let mut body = self.format_plpgsql_block(block, 0);
+            // The outermost PL/pgSQL block should end with "END;" (semicolon
+            // before the closing $$ delimiter).
+            if !body.trim_end().ends_with(';') {
+                body.push(';');
+            }
+            return Ok(body);
         }
         // Fallback: return normalized source.
         Ok(root.text(self.source).to_string())

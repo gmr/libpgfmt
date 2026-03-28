@@ -269,16 +269,14 @@ impl<'a> Formatter<'a> {
             Self::join_with_multiline_indent(&parts)
         };
 
-        // Clean up double spaces on each line, preserving leading whitespace.
+        // Clean up double spaces on each line, preserving leading whitespace
+        // and spaces inside quoted strings.
         result
             .lines()
             .map(|line| {
                 let leading = line.len() - line.trim_start().len();
                 let prefix = &line[..leading];
-                let cleaned = line[leading..]
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ");
+                let cleaned = collapse_whitespace_outside_quotes(&line[leading..]);
                 format!("{prefix}{cleaned}")
             })
             .collect::<Vec<_>>()
@@ -921,4 +919,71 @@ impl<'a> Formatter<'a> {
         }
         parts.join(" ")
     }
+}
+
+/// Collapse runs of whitespace to single spaces, but preserve whitespace
+/// inside single-quoted or double-quoted strings.
+fn collapse_whitespace_outside_quotes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut prev_was_space = false;
+
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        let ch = chars[i];
+
+        if in_single_quote {
+            result.push(ch);
+            if ch == '\'' {
+                // Check for escaped quote ('').
+                if i + 1 < len && chars[i + 1] == '\'' {
+                    result.push('\'');
+                    i += 2;
+                    continue;
+                }
+                in_single_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_double_quote {
+            result.push(ch);
+            if ch == '"' {
+                if i + 1 < len && chars[i + 1] == '"' {
+                    result.push('"');
+                    i += 2;
+                    continue;
+                }
+                in_double_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if ch == '\'' {
+            in_single_quote = true;
+            prev_was_space = false;
+            result.push(ch);
+        } else if ch == '"' {
+            in_double_quote = true;
+            prev_was_space = false;
+            result.push(ch);
+        } else if ch.is_whitespace() {
+            if !prev_was_space {
+                result.push(' ');
+                prev_was_space = true;
+            }
+        } else {
+            prev_was_space = false;
+            result.push(ch);
+        }
+        i += 1;
+    }
+
+    result
 }

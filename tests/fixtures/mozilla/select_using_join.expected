@@ -6,7 +6,7 @@ FROM
 JOIN
     plans AS p
     USING (plan_id)
-INNER JOIN
+JOIN
     features AS f
     USING (feature_id)
 WHERE

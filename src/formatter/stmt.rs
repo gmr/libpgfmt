@@ -38,14 +38,26 @@ impl<'a> Formatter<'a> {
                     normalize_whitespace(text)
                 }
             };
-            return Ok(format!("{};", result.trim_end_matches(';')));
+            let trimmed = result.trim_end_matches(';');
+            // If the last line contains a line comment (--), appending ;
+            // directly would put the semicolon inside the comment.
+            let needs_newline = trimmed
+                .lines()
+                .last()
+                .map(|line| line.contains("--"))
+                .unwrap_or(false);
+            return if needs_newline {
+                Ok(format!("{trimmed}\n;"))
+            } else {
+                Ok(format!("{trimmed};"))
+            };
         }
         Ok(String::new())
     }
 
     // ── INSERT ──────────────────────────────────────────────────────────
 
-    fn format_insert_stmt(&self, node: Node<'a>) -> String {
+    pub(crate) fn format_insert_stmt(&self, node: Node<'a>) -> String {
         let mut parts = Vec::new();
 
         // INSERT INTO target.
@@ -73,10 +85,11 @@ impl<'a> Formatter<'a> {
                 let formatted = self.format_select_stmt(select);
                 // Check if it's VALUES or a sub-SELECT.
                 let select_text = formatted.trim_end_matches(';');
+                let values_kw = self.kw("VALUES");
+                let is_values = select_text.trim_start().starts_with(&values_kw);
 
-                if self.config.river {
+                if is_values && self.config.river {
                     // River: VALUES aligned with INSERT INTO.
-                    let values_kw = self.kw("VALUES");
                     // Compute padding to right-align VALUES with INSERT INTO.
                     let insert_kw_len = parts[0]
                         .split(' ')
@@ -118,6 +131,7 @@ impl<'a> Formatter<'a> {
                         parts.push(self.river_line(&values_kw, content.trim(), river_width));
                     }
                 } else {
+                    // Real SELECT or non-river VALUES: emit as-is.
                     parts.push(select_text.to_string());
                 }
             }
@@ -128,7 +142,7 @@ impl<'a> Formatter<'a> {
 
     // ── UPDATE ──────────────────────────────────────────────────────────
 
-    fn format_update_stmt(&self, node: Node<'a>) -> String {
+    pub(crate) fn format_update_stmt(&self, node: Node<'a>) -> String {
         let table = node
             .find_child("relation_expr_opt_alias")
             .map(|n| self.format_relation_expr_opt_alias(n))
@@ -225,7 +239,7 @@ impl<'a> Formatter<'a> {
 
     // ── DELETE ──────────────────────────────────────────────────────────
 
-    fn format_delete_stmt(&self, node: Node<'a>) -> String {
+    pub(crate) fn format_delete_stmt(&self, node: Node<'a>) -> String {
         let table = node
             .find_child("relation_expr_opt_alias")
             .map(|n| self.format_relation_expr_opt_alias(n))
@@ -806,7 +820,15 @@ impl<'a> Formatter<'a> {
         for child in node.named_children(&mut cursor) {
             match child.kind() {
                 "relation_expr" => parts.push(self.format_relation_expr(child)),
-                "opt_alias_clause" | "alias_clause" | "ColId" => {
+                "opt_alias_clause" | "alias_clause" => {
+                    // alias_clause already includes the AS keyword.
+                    let alias = self.format_expr(child);
+                    if !alias.is_empty() {
+                        parts.push(alias);
+                    }
+                }
+                "ColId" => {
+                    // Bare identifier alias without AS keyword.
                     let alias = self.format_expr(child);
                     if !alias.is_empty() {
                         parts.push(format!("{} {alias}", self.kw("AS")));
