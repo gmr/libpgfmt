@@ -1093,6 +1093,34 @@ fn collapse_whitespace_outside_quotes(s: &str) -> String {
             in_double_quote = true;
             prev_was_space = false;
             result.push(ch);
+        } else if ch == '$' {
+            // Dollar-quoted string: $$...$$ or $tag$...$tag$.
+            let tag_start = i;
+            let mut tag_end = i + 1;
+            while tag_end < len && (chars[tag_end].is_ascii_alphanumeric() || chars[tag_end] == '_')
+            {
+                tag_end += 1;
+            }
+            if tag_end < len && chars[tag_end] == '$' {
+                let tag: String = chars[tag_start..=tag_end].iter().collect();
+                result.push_str(&tag);
+                i = tag_end + 1;
+                while i < len {
+                    let remaining: String = chars[i..].iter().collect();
+                    if remaining.starts_with(&tag) {
+                        result.push_str(&tag);
+                        i += tag.len();
+                        break;
+                    }
+                    result.push(chars[i]);
+                    i += 1;
+                }
+                prev_was_space = false;
+                continue;
+            }
+            // Not a dollar-quote, just a dollar sign.
+            prev_was_space = false;
+            result.push(ch);
         } else if ch.is_whitespace() {
             if !prev_was_space {
                 result.push(' ');
