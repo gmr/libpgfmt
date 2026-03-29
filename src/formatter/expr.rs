@@ -344,34 +344,64 @@ impl<'a> Formatter<'a> {
     fn format_c_expr(&self, node: Node<'a>) -> String {
         let mut parts = Vec::new();
         let mut has_block_subquery = false;
+        let mut paren_depth: u32 = 0;
+        let mut paren_parts: Vec<String> = Vec::new();
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.is_named() {
-                match child.kind() {
-                    "columnref" => parts.push(self.format_columnref(child)),
-                    "AexprConst" => parts.push(self.format_const(child)),
-                    "func_expr" | "func_application" => parts.push(self.format_func(child)),
-                    "case_expr" => parts.push(self.format_case_expr(child)),
+                let formatted = match child.kind() {
+                    "columnref" => self.format_columnref(child),
+                    "AexprConst" => self.format_const(child),
+                    "func_expr" | "func_application" => self.format_func(child),
+                    "case_expr" => self.format_case_expr(child),
                     "select_with_parens" => {
-                        let formatted = self.format_select_with_parens(child);
-                        if formatted.starts_with("(\n") {
+                        let f = self.format_select_with_parens(child);
+                        if f.starts_with("(\n") {
                             has_block_subquery = true;
                         }
-                        parts.push(formatted);
+                        f
                     }
-                    "kw_exists" => parts.push(self.kw("EXISTS")),
-                    "kw_row" => parts.push(self.kw("ROW")),
-                    _ if child.kind().starts_with("kw_") => {
-                        parts.push(self.format_keyword_node(child));
-                    }
-                    _ => parts.push(self.format_expr(child)),
+                    "kw_exists" => self.kw("EXISTS"),
+                    "kw_row" => self.kw("ROW"),
+                    _ if child.kind().starts_with("kw_") => self.format_keyword_node(child),
+                    _ => self.format_expr(child),
+                };
+                if paren_depth > 0 {
+                    paren_parts.push(formatted);
+                } else {
+                    parts.push(formatted);
                 }
             } else {
                 let text = self.text(child).trim();
-                if !text.is_empty() {
-                    parts.push(text.to_string());
+                if text == "(" {
+                    if paren_depth > 0 {
+                        // Nested paren — include it as content.
+                        paren_parts.push("(".to_string());
+                    }
+                    paren_depth += 1;
+                } else if text == ")" && paren_depth > 0 {
+                    paren_depth -= 1;
+                    if paren_depth == 0 {
+                        // Close outermost paren group.
+                        let inner = paren_parts.join(" ");
+                        parts.push(format!("({inner})"));
+                        paren_parts.clear();
+                    } else {
+                        // Closing a nested paren.
+                        paren_parts.push(")".to_string());
+                    }
+                } else if !text.is_empty() {
+                    if paren_depth > 0 {
+                        paren_parts.push(text.to_string());
+                    } else {
+                        parts.push(text.to_string());
+                    }
                 }
             }
+        }
+        // Unclosed parens — flush as-is.
+        if paren_depth > 0 {
+            parts.push(format!("({}", paren_parts.join(" ")));
         }
 
         // For block-format subqueries (left-aligned styles), join with simple
