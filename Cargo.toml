@@ -1,6 +1,6 @@
 [package]
 name = "libpgfmt"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A Rust library for formatting PostgreSQL SQL and PL/pgSQL"
