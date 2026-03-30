@@ -50,21 +50,13 @@ fn all_fixture_pairs() {
         .join("tests")
         .join("fixtures");
 
-    let styles: &[(&str, Style)] = &[
-        ("river", Style::River),
-        ("mozilla", Style::Mozilla),
-        ("aweber", Style::Aweber),
-        ("dbt", Style::Dbt),
-        ("gitlab", Style::Gitlab),
-        ("kickstarter", Style::Kickstarter),
-        ("mattmc3", Style::Mattmc3),
-    ];
+    let styles: Vec<(String, Style)> = Style::ALL.iter().map(|&s| (s.to_string(), s)).collect();
 
     let mut total = 0;
     let mut passed = 0;
     let mut failures = Vec::new();
 
-    for (style_name, style) in styles {
+    for (style_name, style) in &styles {
         let style_dir = fixtures_dir.join(style_name);
         if !style_dir.exists() {
             continue;
