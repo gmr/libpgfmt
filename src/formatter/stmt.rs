@@ -952,11 +952,7 @@ impl<'a> Formatter<'a> {
         let mut parts = Vec::new();
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            match child.kind() {
-                "generic_option_name" => parts.push(self.format_expr(child)),
-                "generic_option_arg" => parts.push(self.format_expr(child)),
-                _ => parts.push(self.format_expr(child)),
-            }
+            parts.push(self.format_expr(child));
         }
         parts.join(" ")
     }
