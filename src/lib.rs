@@ -17,9 +17,9 @@
 //!
 //! The [`Style`] enum provides 7 formatting variants:
 //!
-//! - **River** (default) — keywords right-aligned to form a visual river
+//! - **River** — keywords right-aligned to form a visual river
 //! - **Mozilla** — keywords left-aligned, content indented 4 spaces
-//! - **Aweber** — river with JOINs in keyword alignment
+//! - **AWeber** (default) — river with JOINs in keyword alignment
 //! - **Dbt** — lowercase keywords, blank lines between clauses
 //! - **Gitlab** — 2-space indent, uppercase keywords
 //! - **Kickstarter** — 2-space indent, compact JOINs
@@ -68,7 +68,7 @@ use tree_sitter_postgres::{LANGUAGE, LANGUAGE_PLPGSQL};
 /// ```
 /// use libpgfmt::{format, style::Style};
 ///
-/// // River style (default)
+/// // River style
 /// let result = format("SELECT id FROM users WHERE active = TRUE", Style::River).unwrap();
 /// assert_eq!(result, "SELECT id\n  FROM users\n WHERE active = TRUE;");
 ///

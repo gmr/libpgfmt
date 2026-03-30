@@ -4,7 +4,7 @@ use std::str::FromStr;
 /// SQL formatting style.
 ///
 /// Each variant implements a different layout strategy for SQL statements.
-/// Use [`Style::default()`] for the river style, or parse from a string:
+/// Use [`Style::default()`] for the [AWeber style](https://gist.github.com/gmr/2cceb85bb37be96bc96f05c5b8de9e1b), or parse from a string:
 ///
 /// ```
 /// use libpgfmt::style::Style;
@@ -20,11 +20,11 @@ use std::str::FromStr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Style {
     /// Simon Holywell's river style — keywords right-aligned to form a visual river.
-    #[default]
     River,
     /// Mozilla style — keywords left-aligned, content indented 4 spaces.
     Mozilla,
     /// AWeber style — river style with JOINs participating in keyword alignment.
+    #[default]
     Aweber,
     /// dbt style — Mozilla-like with lowercase keywords and blank lines between clauses.
     Dbt,
