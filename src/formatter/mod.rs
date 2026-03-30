@@ -33,6 +33,8 @@ pub(crate) struct StyleConfig {
     pub blank_lines_in_ctes: bool,
     /// Strip INNER keyword from INNER JOIN (mattmc3: use plain JOIN).
     pub strip_inner_join: bool,
+    /// Wrap CASE expressions when ELSE is present (AWeber, mattmc3).
+    pub wrap_case_else: bool,
 }
 
 impl StyleConfig {
@@ -50,6 +52,7 @@ impl StyleConfig {
                 join_on_same_line: false,
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
+                wrap_case_else: false,
             },
             Style::Mozilla => Self {
                 upper_keywords: true,
@@ -63,6 +66,7 @@ impl StyleConfig {
                 join_on_same_line: false,
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
+                wrap_case_else: false,
             },
             Style::Aweber => Self {
                 upper_keywords: true,
@@ -76,6 +80,7 @@ impl StyleConfig {
                 join_on_same_line: false,
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
+                wrap_case_else: true,
             },
             Style::Dbt => Self {
                 upper_keywords: false,
@@ -89,6 +94,7 @@ impl StyleConfig {
                 join_on_same_line: false,
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
+                wrap_case_else: false,
             },
             Style::Gitlab => Self {
                 upper_keywords: true,
@@ -102,6 +108,7 @@ impl StyleConfig {
                 join_on_same_line: false,
                 blank_lines_in_ctes: true,
                 strip_inner_join: false,
+                wrap_case_else: false,
             },
             Style::Kickstarter => Self {
                 upper_keywords: true,
@@ -115,6 +122,7 @@ impl StyleConfig {
                 join_on_same_line: true,
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
+                wrap_case_else: false,
             },
             Style::Mattmc3 => Self {
                 upper_keywords: false,
@@ -128,6 +136,7 @@ impl StyleConfig {
                 join_on_same_line: false,
                 blank_lines_in_ctes: false,
                 strip_inner_join: true,
+                wrap_case_else: true,
             },
         }
     }

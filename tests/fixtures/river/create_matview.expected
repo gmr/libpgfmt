@@ -11,19 +11,15 @@ CREATE MATERIALIZED VIEW report.service_subscription_info AS
     FROM public.subscriptions AS sp
     JOIN public.plans AS p
    USING (plan_id)
-
-         INNER JOIN public.plan_details AS pd
-         USING (plan_id)
-
-         INNER JOIN public.pricing_fees AS pf
-         USING (plan_detail_id)
-
-         INNER JOIN public.features AS f
-         USING (feature_id)
-
-         INNER JOIN public.billing_terms AS bt
-         USING (billing_term_id)
-   WHERE sp.cancelled_at IS NULL OR sp.cancelled_at > CURRENT_TIMESTAMP
+    JOIN public.plan_details AS pd
+   USING (plan_id)
+    JOIN public.pricing_fees AS pf
+   USING (plan_detail_id)
+    JOIN public.features AS f
+   USING (feature_id)
+    JOIN public.billing_terms AS bt
+   USING (billing_term_id)
+   WHERE (sp.cancelled_at IS NULL OR sp.cancelled_at > CURRENT_TIMESTAMP)
      AND f.feature_name = 'notifications'::TEXT
 ORDER BY sp.cancelled_at DESC, sp.started_at
 WITH NO DATA;

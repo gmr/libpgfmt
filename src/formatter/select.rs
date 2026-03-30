@@ -40,12 +40,20 @@ impl<'a> Formatter<'a> {
 
     /// Format a select_no_parens node.
     pub(crate) fn format_select_no_parens(&self, node: Node<'a>) -> String {
+        self.format_select_no_parens_with_min_width(node, 0)
+    }
+
+    fn format_select_no_parens_with_min_width(
+        &self,
+        node: Node<'a>,
+        min_river_width: usize,
+    ) -> String {
         let clauses = self.collect_select_clauses(node);
         if clauses.values_clause.is_some() {
             return self.format_values_only(&clauses);
         }
         if self.config.river {
-            self.format_select_river(&clauses)
+            self.format_select_river_with_min_width(&clauses, min_river_width)
         } else {
             self.format_select_left_aligned(&clauses)
         }
@@ -247,28 +255,59 @@ impl<'a> Formatter<'a> {
     // ── River-style SELECT ──────────────────────────────────────────────
 
     fn format_select_river(&self, clauses: &SelectClauses<'a>) -> String {
+        self.format_select_river_with_min_width(clauses, 0)
+    }
+
+    fn format_select_river_with_min_width(
+        &self,
+        clauses: &SelectClauses<'a>,
+        min_width: usize,
+    ) -> String {
         let mut lines = Vec::new();
 
         // Calculate river width from all keywords that will appear.
         let keywords = self.collect_river_keywords(clauses);
-        let river_width = keywords.iter().map(|k| k.len()).max().unwrap_or(6);
+        // Don't apply min_width to set operations (UNION/INTERSECT/EXCEPT)
+        // as they format their own halves independently.
+        let effective_min = if clauses.set_op.is_some() {
+            0
+        } else {
+            min_width
+        };
+        let river_width = keywords
+            .iter()
+            .map(|k| k.len())
+            .max()
+            .unwrap_or(6)
+            .max(effective_min);
 
-        // WITH clause.
+        // WITH clause. When inside a CTE body (min_width > 0), river-align
+        // the WITH keyword; at the top level, WITH starts at column 0.
         if let Some(with) = clauses.with_clause {
-            lines.push(self.format_with_clause_river(with, river_width));
+            lines.push(self.format_with_clause_river_inner(with, river_width, min_width > 0));
         }
 
         // SELECT [DISTINCT] targets.
-        let select_kw = if clauses.distinct.is_some() {
+        // For river alignment, use just SELECT as the keyword and prepend
+        // DISTINCT/DISTINCT ON to the target content so that river width
+        // is based on SELECT alone.
+        let select_kw = self.kw("SELECT");
+        let distinct_prefix = if clauses.distinct.is_some() {
             let distinct_text = clauses
                 .distinct
                 .map(|d| self.format_distinct(d))
                 .unwrap_or_else(|| self.kw("DISTINCT"));
-            format!("{} {}", self.kw("SELECT"), distinct_text)
+            Some(distinct_text)
         } else {
-            self.kw("SELECT")
+            None
         };
-        self.append_river_targets(&select_kw, &clauses.targets, river_width, &mut lines);
+        self.append_river_targets_with_prefix(
+            &select_kw,
+            distinct_prefix.as_deref(),
+            &clauses.targets,
+            river_width,
+            &mut lines,
+        );
 
         // FROM clause with JOINs.
         if let Some(from) = clauses.from {
@@ -459,20 +498,30 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// Append target list items in river style.
-    fn append_river_targets(
+    /// Append target list items in river style with an optional prefix
+    /// (e.g. DISTINCT ON (...)) that goes before the first target but after
+    /// the river keyword.
+    fn append_river_targets_with_prefix(
         &self,
         select_kw: &str,
+        prefix: Option<&str>,
         targets: &[Node<'a>],
         width: usize,
         lines: &mut Vec<String>,
     ) {
+        let prepend = |s: &str| -> String {
+            match prefix {
+                Some(p) => format!("{p} {s}"),
+                None => s.to_string(),
+            }
+        };
+
         if targets.is_empty() {
-            lines.push(self.river_line(select_kw, "*", width));
+            lines.push(self.river_line(select_kw, &prepend("*"), width));
             return;
         }
 
-        let first = self.format_target_el(targets[0]);
+        let first = prepend(&self.format_target_el(targets[0]));
         if targets.len() == 1 {
             lines.push(self.river_line(select_kw, &first, width));
             return;
@@ -1417,14 +1466,28 @@ impl<'a> Formatter<'a> {
 
     // ── WITH / CTE formatting ───────────────────────────────────────────
 
-    fn format_with_clause_river(&self, node: Node<'a>, river_width: usize) -> String {
+    fn format_with_clause_river_inner(
+        &self,
+        node: Node<'a>,
+        river_width: usize,
+        river_align_with: bool,
+    ) -> String {
         let mut lines = Vec::new();
         if let Some(cte_list) = node.find_child("cte_list") {
             let ctes = flatten_list(cte_list, "cte_list");
+            // When WITH is river-aligned, river_line handles continuation
+            // indentation, so CTE bodies use their own width (pass 0).
+            // When WITH is at column 0 (top-level), CTE bodies inherit
+            // the outer river_width as a minimum.
+            let body_min_width = if river_align_with { 0 } else { river_width };
             for (i, cte) in ctes.iter().enumerate() {
-                let cte_text = self.format_cte_river(*cte, river_width);
+                let cte_text = self.format_cte_river(*cte, body_min_width);
                 if i == 0 {
-                    lines.push(format!("{} {cte_text}", self.kw("WITH")));
+                    if river_align_with {
+                        lines.push(self.river_line(&self.kw("WITH"), &cte_text, river_width));
+                    } else {
+                        lines.push(format!("{} {cte_text}", self.kw("WITH")));
+                    }
                 } else {
                     lines.push(cte_text);
                 }
@@ -1433,23 +1496,24 @@ impl<'a> Formatter<'a> {
         lines.join(",\n")
     }
 
-    fn format_cte_river(&self, node: Node<'a>, _river_width: usize) -> String {
+    fn format_cte_river(&self, node: Node<'a>, river_width: usize) -> String {
         let name = node
             .find_child("name")
             .map(|n| self.format_expr(n))
             .unwrap_or_default();
 
-        let body = self.format_cte_body(node);
+        let body = self.format_cte_body(node, river_width);
 
         format!("{name} {} (\n{body}\n)", self.kw("AS"))
     }
 
     /// Extract and format the body of a CTE, handling SELECT, INSERT, UPDATE,
     /// DELETE, and any other PreparableStmt type.
-    fn format_cte_body(&self, node: Node<'a>) -> String {
+    fn format_cte_body(&self, node: Node<'a>, min_river_width: usize) -> String {
         if let Some(prep) = node.find_child("PreparableStmt") {
             if let Some(select) = prep.find_child("SelectStmt") {
-                return self.format_select_stmt(select);
+                let snp = select.find_child("select_no_parens").unwrap_or(select);
+                return self.format_select_no_parens_with_min_width(snp, min_river_width);
             }
             if let Some(insert) = prep.find_child("InsertStmt") {
                 return self.format_insert_stmt(insert);
@@ -1485,7 +1549,7 @@ impl<'a> Formatter<'a> {
                     .map(|n| self.format_expr(n))
                     .unwrap_or_default();
 
-                let body = self.format_cte_body(*cte);
+                let body = self.format_cte_body(*cte, 0);
 
                 let indented_body = body
                     .lines()
