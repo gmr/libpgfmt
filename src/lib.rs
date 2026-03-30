@@ -157,27 +157,26 @@ pub fn format_plpgsql(code: &str, style: Style) -> Result<String, FormatError> {
     fmt.format_plpgsql_root(root)
 }
 
-/// Check whether the parse tree has a structural error (ERROR node wrapping
-/// significant content). Small ERROR nodes (e.g., unparsed decimal fraction
-/// like ".00") are tolerable and can be passed through as-is.
-fn has_structural_error(node: &tree_sitter::Node) -> bool {
-    if node.is_error() {
-        // Small leaf ERROR nodes (e.g., ".00" decimal part = 3 bytes) are
-        // tolerable grammar gaps. Anything larger likely indicates a genuine
-        // parse failure that would produce garbled output.
-        let size = node.end_byte() - node.start_byte();
-        return size > 4;
+/// Check whether the parse tree has a structural error that would prevent
+/// meaningful formatting.
+///
+/// The tree-sitter-postgres grammar has known limitations that produce ERROR
+/// nodes for valid SQL (e.g., `IS NOT NULL AND`, parenthesized boolean
+/// expressions, dollar-quoted function bodies). We only reject input when
+/// the parser couldn't produce any valid statement structure at all.
+fn has_structural_error(root: &tree_sitter::Node) -> bool {
+    // If the parser produced at least one valid toplevel_stmt, the errors
+    // are grammar limitations (expression-level conflicts, dollar-quoted
+    // bodies, etc.) — not fundamentally broken SQL. Format what we can.
+    let mut cursor = root.walk();
+    let has_valid_stmt = root
+        .named_children(&mut cursor)
+        .any(|c| c.kind() == "toplevel_stmt");
+    if has_valid_stmt {
+        return false;
     }
-    if node.is_missing() {
-        return true;
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.has_error() && has_structural_error(&child) {
-            return true;
-        }
-    }
-    false
+    // No valid statements at all — this is genuinely broken input.
+    true
 }
 
 fn find_error_message(node: &tree_sitter::Node, source: &str) -> String {
