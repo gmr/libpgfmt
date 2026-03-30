@@ -764,11 +764,21 @@ impl<'a> Formatter<'a> {
                 }
                 "func_as" => {
                     // AS $$ ... $$
-                    // Format as: AS $$\n body\n$$
+                    // Preserve original line breaks in the body — collapsing
+                    // newlines to spaces would break line-comment (--) semantics.
+                    // For single-line bodies, normalize whitespace (safe since
+                    // there are no newlines that could affect -- comments).
+                    // For multi-line bodies, re-indent each line to preserve
+                    // the original structure.
                     let text = self.text(child).trim();
                     if let Some((tag, body)) = parse_dollar_quoted(text) {
-                        let body = normalize_whitespace(body);
-                        parts.push(format!("{} {tag}\n {body}\n{tag}", self.kw("AS")));
+                        if body.contains('\n') {
+                            let body = reindent_body(body, " ");
+                            parts.push(format!("{} {tag}\n{body}\n{tag}", self.kw("AS")));
+                        } else {
+                            let body = normalize_whitespace(body);
+                            parts.push(format!("{} {tag}\n {body}\n{tag}", self.kw("AS")));
+                        }
                     } else {
                         parts.push(format!("{} {text}", self.kw("AS")));
                     }
@@ -837,33 +847,60 @@ impl<'a> Formatter<'a> {
             let indent = self.config.indent;
 
             if self.config.river {
-                let mut col_elements = Vec::new();
-                for e in &elements {
-                    let elem = self.classify_table_element(*e);
-                    if let TableElementKind::Column(name, typename, constraints) = elem {
-                        col_elements.push((name, typename, constraints));
-                    }
-                }
+                // Classify all elements, keeping their original order.
+                let classified: Vec<_> = elements
+                    .iter()
+                    .map(|e| self.classify_table_element(*e))
+                    .collect();
 
-                let max_name_len = col_elements
+                // Compute column-alignment widths from Column elements only.
+                let max_name_len = classified
                     .iter()
-                    .map(|(n, _, _)| n.len())
+                    .filter_map(|e| {
+                        if let TableElementKind::Column(n, _, _) = e {
+                            Some(n.len())
+                        } else {
+                            None
+                        }
+                    })
                     .max()
                     .unwrap_or(0);
-                let max_type_len = col_elements
+                let max_type_len = classified
                     .iter()
-                    .map(|(_, t, _)| t.len())
+                    .filter_map(|e| {
+                        if let TableElementKind::Column(_, t, _) = e {
+                            Some(t.len())
+                        } else {
+                            None
+                        }
+                    })
                     .max()
                     .unwrap_or(0);
-                for (i, (name, typename, constraints)) in col_elements.iter().enumerate() {
-                    let padded_name = format!("{:width$}", name, width = max_name_len);
-                    let padded_type = format!("{:width$}", typename, width = max_type_len);
-                    let mut item = format!("{padded_name} {padded_type}");
-                    if !constraints.is_empty() {
-                        item = format!("{item} {constraints}");
+
+                let total = classified.len();
+                for (i, elem) in classified.iter().enumerate() {
+                    let comma = if i < total - 1 { "," } else { "" };
+                    match elem {
+                        TableElementKind::Column(name, typename, constraints) => {
+                            let padded_name = format!("{:width$}", name, width = max_name_len);
+                            let padded_type = format!("{:width$}", typename, width = max_type_len);
+                            let mut item = format!("{padded_name} {padded_type}");
+                            if !constraints.is_empty() {
+                                item = format!("{item} {constraints}");
+                            }
+                            lines.push(format!("{indent}{item}{comma}"));
+                        }
+                        TableElementKind::PrimaryKey(text)
+                        | TableElementKind::Constraint(_, text) => {
+                            let text = match elem {
+                                TableElementKind::Constraint(Some(name), body) => {
+                                    format!("{} {name} {body}", self.kw("CONSTRAINT"))
+                                }
+                                _ => text.clone(),
+                            };
+                            lines.push(format!("{indent}{text}{comma}"));
+                        }
                     }
-                    let comma = if i < col_elements.len() - 1 { "," } else { "" };
-                    lines.push(format!("{indent}{item}{comma}"));
                 }
             } else {
                 let formatted: Vec<_> = elements
@@ -1001,6 +1038,43 @@ fn parse_dollar_quoted(s: &str) -> Option<(&str, &str)> {
     let body_end = rest.rfind(tag)?;
     let body = &rest[..body_end];
     Some((tag, body))
+}
+
+/// Re-indent a multi-line body (e.g., a dollar-quoted function body) so that
+/// each non-empty line starts with the given `indent` prefix. Strips leading
+/// and trailing blank lines, and removes the common leading whitespace from all
+/// lines before applying the new indent.
+fn reindent_body(s: &str, indent: &str) -> String {
+    let lines: Vec<&str> = s.lines().collect();
+    // Skip leading/trailing empty lines.
+    let start = lines.iter().position(|l| !l.trim().is_empty()).unwrap_or(0);
+    let end = lines
+        .iter()
+        .rposition(|l| !l.trim().is_empty())
+        .map(|i| i + 1)
+        .unwrap_or(lines.len());
+    let body_lines = &lines[start..end];
+    if body_lines.is_empty() {
+        return String::new();
+    }
+    // Determine the minimum leading whitespace across non-empty lines.
+    let min_indent = body_lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    body_lines
+        .iter()
+        .map(|line| {
+            if line.trim().is_empty() {
+                String::new()
+            } else {
+                format!("{indent}{}", &line[min_indent..])
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Collapse runs of whitespace to single spaces, but preserve whitespace

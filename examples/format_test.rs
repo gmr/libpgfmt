@@ -7,7 +7,10 @@ fn main() {
         .parse()
         .unwrap();
     match format(sql.trim(), style) {
-        Ok(f) => print!("{f}\n"),
-        Err(e) => eprintln!("Error: {e}"),
+        Ok(f) => println!("{f}"),
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
     }
 }

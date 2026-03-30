@@ -659,15 +659,26 @@ impl<'a> Formatter<'a> {
         let subexpr = node.find_child("func_expr_common_subexpr").unwrap_or(node);
 
         // CAST(expr AS type) → expr::type
+        // Parenthesize when the formatted operand contains spaces that indicate
+        // a compound expression (e.g. "a + b"), because the :: typecast operator
+        // has higher precedence than arithmetic operators in PostgreSQL.
+        // Simple expressions (column refs, literals, function calls, already-
+        // parenthesized expressions) do not need extra parens.
         if subexpr.has_child("kw_cast")
             && let Some(expr) = subexpr.find_child_any(&["a_expr", "c_expr"])
             && let Some(typename) = subexpr.find_child("Typename")
         {
-            return format!(
-                "{}::{}",
-                self.format_expr(expr),
-                self.format_typename(typename)
-            );
+            let formatted = self.format_expr(expr);
+            // Parenthesized expressions, function calls like fn(...), and
+            // expressions without spaces (simple identifiers/literals) are safe.
+            // Anything else (e.g. "a + b", "x IS NOT NULL") needs wrapping.
+            let needs_parens =
+                formatted.contains(' ') && !formatted.starts_with('(') && !formatted.contains('(');
+            return if needs_parens {
+                format!("({formatted})::{}", self.format_typename(typename))
+            } else {
+                format!("{formatted}::{}", self.format_typename(typename))
+            };
         }
 
         // Handle COALESCE, GREATEST, LEAST, NULLIF, etc.
@@ -1049,6 +1060,7 @@ impl<'a> Formatter<'a> {
         let mut base = String::new();
         let mut modifiers = String::new();
         let mut extra_keywords = Vec::new();
+        let mut timezone_keywords = Vec::new();
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -1068,28 +1080,30 @@ impl<'a> Formatter<'a> {
                     }
                     "kw_varying" => extra_keywords.push("VARYING".to_string()),
                     "opt_timezone" => {
-                        // WITH/WITHOUT TIME ZONE
+                        // WITH/WITHOUT TIME ZONE — must appear after modifiers
+                        // so TIMESTAMP(6) WITH TIME ZONE is correct, not
+                        // TIMESTAMP WITH TIME ZONE(6).
                         let mut tz_cursor = child.walk();
                         for tz_child in child.named_children(&mut tz_cursor) {
                             match tz_child.kind() {
-                                "kw_with" => extra_keywords.push(self.kw("WITH")),
-                                "kw_without" => extra_keywords.push(self.kw("WITHOUT")),
-                                "kw_time" => extra_keywords.push(self.kw("TIME")),
-                                "kw_zone" => extra_keywords.push(self.kw("ZONE")),
+                                "kw_with" => timezone_keywords.push(self.kw("WITH")),
+                                "kw_without" => timezone_keywords.push(self.kw("WITHOUT")),
+                                "kw_time" => timezone_keywords.push(self.kw("TIME")),
+                                "kw_zone" => timezone_keywords.push(self.kw("ZONE")),
                                 _ => {}
                             }
                         }
                     }
-                    "kw_with" => extra_keywords.push(self.kw("WITH")),
-                    "kw_without" => extra_keywords.push(self.kw("WITHOUT")),
+                    "kw_with" => timezone_keywords.push(self.kw("WITH")),
+                    "kw_without" => timezone_keywords.push(self.kw("WITHOUT")),
                     "kw_time" => {
                         if base.is_empty() {
                             base = self.kw("TIME");
                         } else {
-                            extra_keywords.push(self.kw("TIME"));
+                            timezone_keywords.push(self.kw("TIME"));
                         }
                     }
-                    "kw_zone" => extra_keywords.push(self.kw("ZONE")),
+                    "kw_zone" => timezone_keywords.push(self.kw("ZONE")),
                     "kw_timestamp" => base = self.kw("TIMESTAMP"),
                     "type_function_name" | "unreserved_keyword" => {
                         let name = self.format_first_named_child(child);
@@ -1140,6 +1154,15 @@ impl<'a> Formatter<'a> {
         }
         if !modifiers.is_empty() {
             result.push_str(&modifiers);
+        }
+        // Timezone qualifiers (WITH/WITHOUT TIME ZONE) must follow modifiers
+        // so that TIMESTAMP(6) WITH TIME ZONE is produced, not
+        // TIMESTAMP WITH TIME ZONE(6).
+        if !timezone_keywords.is_empty() {
+            if !result.is_empty() {
+                result.push(' ');
+            }
+            result.push_str(&timezone_keywords.join(" "));
         }
         result
     }
