@@ -386,10 +386,11 @@ impl<'a> Formatter<'a> {
         lines.push(")".to_string());
 
         // WITH clause for storage parameters.
+        // OptWith already contains the WITH keyword, so just normalize.
         if let Some(with) = node.find_child("OptWith") {
-            let text = self.text(with);
-            if !text.trim().is_empty() {
-                lines.push(format!("{} {}", self.kw("WITH"), text.trim()));
+            let text = normalize_whitespace(self.text(with));
+            if !text.is_empty() {
+                lines.push(text);
             }
         }
 
@@ -411,8 +412,8 @@ impl<'a> Formatter<'a> {
                         .unwrap_or_default();
                     let mut constraint_parts = Vec::new();
                     if let Some(qual_list) = col.find_child("ColQualList") {
-                        let mut cursor = qual_list.walk();
-                        for child in qual_list.named_children(&mut cursor) {
+                        let constraints = flatten_list(qual_list, "ColQualList");
+                        for child in constraints {
                             if child.kind() == "ColConstraint" {
                                 constraint_parts.push(self.format_col_constraint(child));
                             }
@@ -490,8 +491,8 @@ impl<'a> Formatter<'a> {
 
         // Column constraints.
         if let Some(qual_list) = node.find_child("ColQualList") {
-            let mut cursor = qual_list.walk();
-            for child in qual_list.named_children(&mut cursor) {
+            let constraints = flatten_list(qual_list, "ColQualList");
+            for child in constraints {
                 if child.kind() == "ColConstraint" {
                     parts.push(self.format_col_constraint(child));
                 }
@@ -610,7 +611,7 @@ impl<'a> Formatter<'a> {
             .or_else(|| node.find_child("view_name"))
             .map(|n| self.format_qualified_name(n))
             .unwrap_or_default();
-        prefix = format!("{prefix} {name} {} ", self.kw("AS"));
+        prefix = format!("{prefix} {name} {}", self.kw("AS"));
 
         // The SELECT body.
         if let Some(select) = node.find_child("SelectStmt") {
@@ -763,7 +764,14 @@ impl<'a> Formatter<'a> {
                 }
                 "func_as" => {
                     // AS $$ ... $$
-                    parts.push(format!("{}\n{}", self.kw("AS"), self.text(child)));
+                    // Format as: AS $$\n body\n$$
+                    let text = self.text(child).trim();
+                    if let Some((tag, body)) = parse_dollar_quoted(text) {
+                        let body = normalize_whitespace(body);
+                        parts.push(format!("{} {tag}\n {body}\n{tag}", self.kw("AS")));
+                    } else {
+                        parts.push(format!("{} {text}", self.kw("AS")));
+                    }
                 }
                 _ => {}
             }
@@ -807,9 +815,113 @@ impl<'a> Formatter<'a> {
     // ── CREATE FOREIGN TABLE ────────────────────────────────────────────
 
     fn format_create_foreign_table_stmt(&self, node: Node<'a>) -> String {
-        // Similar to CREATE TABLE but with SERVER and OPTIONS.
-        let text = self.text(node);
-        normalize_whitespace(text)
+        let table_name = node
+            .find_child("qualified_name")
+            .map(|n| self.format_qualified_name(n))
+            .unwrap_or_default();
+
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "{} {} {} {table_name} (",
+            self.kw("CREATE"),
+            self.kw("FOREIGN"),
+            self.kw("TABLE")
+        ));
+
+        // Column definitions (same as CREATE TABLE).
+        if let Some(elem_list) = node
+            .find_child("OptTableElementList")
+            .and_then(|n| n.find_child("TableElementList"))
+        {
+            let elements = flatten_list(elem_list, "TableElementList");
+            let indent = self.config.indent;
+
+            if self.config.river {
+                let mut col_elements = Vec::new();
+                for e in &elements {
+                    let elem = self.classify_table_element(*e);
+                    if let TableElementKind::Column(name, typename, constraints) = elem {
+                        col_elements.push((name, typename, constraints));
+                    }
+                }
+
+                let max_name_len = col_elements
+                    .iter()
+                    .map(|(n, _, _)| n.len())
+                    .max()
+                    .unwrap_or(0);
+                let max_type_len = col_elements
+                    .iter()
+                    .map(|(_, t, _)| t.len())
+                    .max()
+                    .unwrap_or(0);
+                for (i, (name, typename, constraints)) in col_elements.iter().enumerate() {
+                    let padded_name = format!("{:width$}", name, width = max_name_len);
+                    let padded_type = format!("{:width$}", typename, width = max_type_len);
+                    let mut item = format!("{padded_name} {padded_type}");
+                    if !constraints.is_empty() {
+                        item = format!("{item} {constraints}");
+                    }
+                    let comma = if i < col_elements.len() - 1 { "," } else { "" };
+                    lines.push(format!("{indent}{item}{comma}"));
+                }
+            } else {
+                let formatted: Vec<_> = elements
+                    .iter()
+                    .map(|e| self.format_table_element(*e))
+                    .collect();
+                for (i, elem) in formatted.iter().enumerate() {
+                    let comma = if i < formatted.len() - 1 { "," } else { "" };
+                    lines.push(format!("{indent}{elem}{comma}"));
+                }
+            }
+        }
+
+        lines.push(")".to_string());
+
+        // SERVER name.
+        if let Some(server_name) = node.find_child("name") {
+            lines.push(format!(
+                "{} {}",
+                self.kw("SERVER"),
+                self.format_expr(server_name)
+            ));
+        }
+
+        // OPTIONS (...).
+        if let Some(opts) = node.find_child("create_generic_options") {
+            self.format_generic_options(opts, &mut lines);
+        }
+
+        lines.join("\n")
+    }
+
+    fn format_generic_options(&self, node: Node<'a>, lines: &mut Vec<String>) {
+        if let Some(opt_list) = node.find_child("generic_option_list") {
+            let items = flatten_list(opt_list, "generic_option_list");
+            let indent = self.config.indent;
+
+            lines.push(format!("{} (", self.kw("OPTIONS")));
+            for (i, item) in items.iter().enumerate() {
+                let formatted = self.format_generic_option(*item);
+                let comma = if i < items.len() - 1 { "," } else { "" };
+                lines.push(format!("{indent}{formatted}{comma}"));
+            }
+            lines.push(")".to_string());
+        }
+    }
+
+    fn format_generic_option(&self, node: Node<'a>) -> String {
+        let mut parts = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            match child.kind() {
+                "generic_option_name" => parts.push(self.format_expr(child)),
+                "generic_option_arg" => parts.push(self.format_expr(child)),
+                _ => parts.push(self.format_expr(child)),
+            }
+        }
+        parts.join(" ")
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -872,6 +984,23 @@ impl<'a> Formatter<'a> {
     }
 
     // format_where_river and format_where_left_aligned are defined in select.rs
+}
+
+/// Parse a dollar-quoted string into (tag, body).
+/// E.g., `$$ body $$` → Some(("$$", " body "))
+/// E.g., `$fn$ body $fn$` → Some(("$fn$", " body "))
+fn parse_dollar_quoted(s: &str) -> Option<(&str, &str)> {
+    if !s.starts_with('$') {
+        return None;
+    }
+    // Find the end of the opening tag.
+    let tag_end = s[1..].find('$')? + 2; // +1 for the inner offset, +1 for the closing $
+    let tag = &s[..tag_end];
+    let rest = &s[tag_end..];
+    // Find the closing tag.
+    let body_end = rest.rfind(tag)?;
+    let body = &rest[..body_end];
+    Some((tag, body))
 }
 
 /// Collapse runs of whitespace to single spaces, but preserve whitespace

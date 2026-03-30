@@ -29,20 +29,6 @@ fn run_fixture(style: Style, style_name: &str, name: &str) {
     }
 }
 
-/// Known fixtures that don't match expected output yet due to grammar
-/// limitations or incomplete formatting support. These parse successfully
-/// but produce different output than the pgfmt reference.
-const KNOWN_FAILING: &[&str] = &[
-    "river/create_domain",
-    "river/create_foreign_table",
-    "river/create_function",
-    "river/create_matview",
-    "river/create_table_with",
-    "river/create_view_cte",
-    "aweber/select_case_join",
-    "aweber/select_cte_nested",
-];
-
 /// Discover all .sql files in each style directory and run them.
 #[test]
 fn all_fixture_pairs() {
@@ -81,7 +67,6 @@ fn all_fixture_pairs() {
                 continue;
             }
             let fixture_key = format!("{style_name}/{stem}");
-            let is_known_failing = KNOWN_FAILING.contains(&fixture_key.as_str());
             total += 1;
             let result = std::panic::catch_unwind(|| {
                 run_fixture(*style, style_name, &stem);
@@ -89,30 +74,22 @@ fn all_fixture_pairs() {
             match result {
                 Ok(()) => {
                     passed += 1;
-                    if is_known_failing {
-                        eprintln!("UNEXPECTED PASS {fixture_key}: remove from KNOWN_FAILING");
-                    }
                 }
                 Err(e) => {
-                    if is_known_failing {
-                        eprintln!("EXPECTED FAIL {fixture_key}");
-                        passed += 1; // Don't count as failure.
+                    let msg = if let Some(s) = e.downcast_ref::<String>() {
+                        s.clone()
+                    } else if let Some(s) = e.downcast_ref::<&str>() {
+                        s.to_string()
                     } else {
-                        let msg = if let Some(s) = e.downcast_ref::<String>() {
-                            s.clone()
-                        } else if let Some(s) = e.downcast_ref::<&str>() {
-                            s.to_string()
-                        } else {
-                            "unknown panic".to_string()
-                        };
-                        let short = if msg.chars().count() > 200 {
-                            let truncated: String = msg.chars().take(200).collect();
-                            format!("{truncated}...")
-                        } else {
-                            msg
-                        };
-                        failures.push(format!("{fixture_key}: {short}"));
-                    }
+                        "unknown panic".to_string()
+                    };
+                    let short = if msg.chars().count() > 200 {
+                        let truncated: String = msg.chars().take(200).collect();
+                        format!("{truncated}...")
+                    } else {
+                        msg
+                    };
+                    failures.push(format!("{fixture_key}: {short}"));
                 }
             }
         }

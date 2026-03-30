@@ -5,15 +5,15 @@ A Rust library for formatting PostgreSQL SQL and PL/pgSQL, powered by
 
 Supports 7 formatting styles based on popular SQL style guides:
 
-| Style | Description |
-|-------|-------------|
-| **river** (default) | Keywords right-aligned to form a visual "river" ([sqlstyle.guide](https://www.sqlstyle.guide/)) |
-| **mozilla** | Keywords left-aligned, content indented 4 spaces |
-| **aweber** | River style with JOINs participating in keyword alignment |
-| **dbt** | Lowercase keywords, blank lines between clauses |
-| **gitlab** | 2-space indent, uppercase keywords |
-| **kickstarter** | 2-space indent, compact JOIN...ON on same line |
-| **mattmc3** | Lowercase river with leading commas |
+| Style               | Description                                        |
+| ------------------- | -------------------------------------------------- |
+| [**aweber**](https://gist.github.com/gmr/2cceb85bb37be96bc96f05c5b8de9e1b) | River style with JOINs participating in keyword alignment |
+| [**dbt**](https://docs.getdbt.com/best-practices/how-we-style/2-how-we-style-our-sql) | Lowercase keywords, blank lines between clauses |
+| [**gitlab**](https://handbook.gitlab.com/handbook/enterprise-data/platform/sql-style-guide/) | 2-space indent, uppercase keywords |
+| [**kickstarter**](https://gist.github.com/fredbenenson/7bb92718e19138c20591) | 2-space indent, compact JOIN...ON on same line |
+| [**mattmc3**](https://gist.github.com/mattmc3/38a85e6a4ca1093816c08d4815fbebfb) | Lowercase river with leading commas |
+| [**mozilla**](https://docs.telemetry.mozilla.org/concepts/sql_style.html) | Keywords left-aligned, content indented 4 spaces |
+| [**river**](https://www.sqlstyle.guide/) (default) | Keywords right-aligned to form a visual "river" |
 
 ## Usage
 
@@ -99,6 +99,7 @@ match format("SELECT * FORM broken", Style::River) {
 Given: `SELECT file_hash FROM file_system WHERE file_name = '.vimrc'`
 
 **River** (default):
+
 ```sql
 SELECT file_hash
   FROM file_system
@@ -106,6 +107,7 @@ SELECT file_hash
 ```
 
 **Mozilla**:
+
 ```sql
 SELECT file_hash
 FROM file_system
@@ -114,6 +116,7 @@ WHERE
 ```
 
 **dbt**:
+
 ```sql
 select file_hash
 
@@ -124,6 +127,7 @@ where
 ```
 
 **mattmc3** (leading commas):
+
 ```sql
 select file_hash
   from file_system

@@ -164,7 +164,7 @@ impl<'a> Formatter<'a> {
     /// Format any expression node into inline SQL text.
     pub(crate) fn format_expr(&self, node: Node<'a>) -> String {
         match node.kind() {
-            "a_expr" => self.format_a_expr(node),
+            "a_expr" | "b_expr" => self.format_a_expr(node),
             "a_expr_prec" => self.format_a_expr_prec(node),
             "c_expr" => self.format_c_expr(node),
             "columnref" => self.format_columnref(node),
@@ -183,7 +183,7 @@ impl<'a> Formatter<'a> {
             "type_function_name" => self.format_first_named_child(node),
             "ColId" => self.format_col_id(node),
             "ColLabel" => self.format_first_named_child(node),
-            "qualified_name" => self.format_qualified_name(node),
+            "qualified_name" | "any_name" => self.format_qualified_name(node),
             "indirection" => self.format_indirection(node),
             "indirection_el" => self.format_indirection_el(node),
             "attr_name" => self.format_first_named_child(node),
@@ -198,6 +198,7 @@ impl<'a> Formatter<'a> {
                 formatted.join(", ")
             }
             "func_arg_expr" => self.format_first_named_child(node),
+            "array_expr" => self.format_array_expr(node),
             "opt_alias_clause" | "alias_clause" => self.format_alias(node),
             "group_by_item" => self.format_first_named_child(node),
             "ERROR" => self.text(node).to_string(),
@@ -215,13 +216,25 @@ impl<'a> Formatter<'a> {
 
     /// Format an a_expr node (the main expression type with operators).
     fn format_a_expr(&self, node: Node<'a>) -> String {
-        let mut parts = Vec::new();
+        let mut parts: Vec<String> = Vec::new();
         let mut cursor = node.walk();
         // Check if this a_expr contains an inline expr_list (e.g., IN (...)).
         // If so, skip unnamed parens since we format them with the expr_list.
         let has_expr_list = node.find_child("expr_list").is_some();
+        let mut pending_cast = false;
         for child in node.children(&mut cursor) {
             if child.is_named() {
+                // After ::, the next named child is a Typename — append directly
+                // to the previous part without spaces.
+                if pending_cast {
+                    pending_cast = false;
+                    let typename = self.format_expr(child);
+                    if let Some(last) = parts.last_mut() {
+                        last.push_str("::");
+                        last.push_str(&typename);
+                    }
+                    continue;
+                }
                 match child.kind() {
                     "a_expr_prec" | "a_expr" | "c_expr" => {
                         parts.push(self.format_expr(child));
@@ -269,6 +282,11 @@ impl<'a> Formatter<'a> {
                 // Unnamed children are operators like =, <, >, !=, etc.
                 let text = self.text(child).trim();
                 if !text.is_empty() {
+                    // Typecast operator :: — defer and attach to next Typename.
+                    if text == "::" {
+                        pending_cast = true;
+                        continue;
+                    }
                     // Skip parens that surround an expr_list (handled inline).
                     if has_expr_list && (text == "(" || text == ")") {
                         continue;
@@ -325,14 +343,28 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_a_expr_prec(&self, node: Node<'a>) -> String {
-        let mut parts = Vec::new();
+        let mut parts: Vec<String> = Vec::new();
         let mut cursor = node.walk();
+        let mut pending_cast = false;
         for child in node.children(&mut cursor) {
             if child.is_named() {
+                if pending_cast {
+                    pending_cast = false;
+                    let typename = self.format_expr(child);
+                    if let Some(last) = parts.last_mut() {
+                        last.push_str("::");
+                        last.push_str(&typename);
+                    }
+                    continue;
+                }
                 parts.push(self.format_expr(child));
             } else {
                 let text = self.text(child).trim();
                 if !text.is_empty() {
+                    if text == "::" {
+                        pending_cast = true;
+                        continue;
+                    }
                     let op = if text == "!=" { "<>" } else { text };
                     parts.push(op.to_string());
                 }
@@ -363,14 +395,25 @@ impl<'a> Formatter<'a> {
                     }
                     "kw_exists" => self.kw("EXISTS"),
                     "kw_row" => self.kw("ROW"),
+                    "kw_array" => self.kw("ARRAY"),
+                    "array_expr" => self.format_array_expr(child),
                     _ if child.kind().starts_with("kw_") => self.format_keyword_node(child),
                     _ => self.format_expr(child),
                 };
-                if paren_depth > 0 {
-                    paren_parts.push(formatted);
+                // Merge ARRAY with following [...] bracket expression.
+                let target = if paren_depth > 0 {
+                    &mut paren_parts
                 } else {
-                    parts.push(formatted);
+                    &mut parts
+                };
+                if formatted.starts_with('[')
+                    && let Some(last) = target.last_mut()
+                    && (*last == "ARRAY" || *last == "array")
+                {
+                    last.push_str(&formatted);
+                    continue;
                 }
+                target.push(formatted);
             } else {
                 let text = self.text(child).trim();
                 if text == "(" {
@@ -384,7 +427,14 @@ impl<'a> Formatter<'a> {
                     if paren_depth == 0 {
                         // Close outermost paren group.
                         let inner = paren_parts.join(" ");
-                        parts.push(format!("({inner})"));
+                        // Strip redundant parens around a single simple
+                        // expression (column ref, literal) that doesn't
+                        // contain operators or keywords.
+                        if paren_parts.len() == 1 && !inner.contains(' ') && !inner.contains('\n') {
+                            parts.push(inner);
+                        } else {
+                            parts.push(format!("({inner})"));
+                        }
                         paren_parts.clear();
                     } else {
                         // Closing a nested paren.
@@ -444,7 +494,18 @@ impl<'a> Formatter<'a> {
         let mut cursor = node.walk();
         if let Some(child) = node.named_children(&mut cursor).next() {
             return match child.kind() {
-                "identifier" | "unreserved_keyword" => self.text(child).to_string(),
+                "identifier" => self.text(child).to_string(),
+                "unreserved_keyword" => {
+                    // Special pseudo-variables like VALUE in domain CHECK
+                    // constraints are conventionally lowercased regardless
+                    // of keyword casing.
+                    if let Some(kw) = child.named_children(&mut child.walk()).next()
+                        && kw.kind() == "kw_value"
+                    {
+                        return "value".to_string();
+                    }
+                    self.text(child).to_string()
+                }
                 _ => self.format_expr(child),
             };
         }
@@ -506,7 +567,14 @@ impl<'a> Formatter<'a> {
         match node.kind() {
             "func_expr" => {
                 if let Some(app) = node.find_child("func_application") {
-                    return self.format_func(app);
+                    let mut result = self.format_func(app);
+                    // Check for OVER clause at the func_expr level
+                    // (window functions like RANK() OVER (...)).
+                    if let Some(over) = node.find_child("over_clause") {
+                        result.push(' ');
+                        result.push_str(&self.format_over_clause(over));
+                    }
+                    return result;
                 }
                 // func_expr_common_subexpr or other variants.
                 self.format_func_expr_common(node)
@@ -568,7 +636,15 @@ impl<'a> Formatter<'a> {
             args
         };
 
-        let mut result = format!("{cased_name}({inner})");
+        // ANY, ALL, SOME are special SQL constructs that conventionally
+        // have a space before the opening paren.
+        let lower = cased_name.to_lowercase();
+        let space = if lower == "any" || lower == "all" || lower == "some" {
+            " "
+        } else {
+            ""
+        };
+        let mut result = format!("{cased_name}{space}({inner})");
 
         if let Some(over) = over_clause {
             result.push(' ');
@@ -579,10 +655,57 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_func_expr_common(&self, node: Node<'a>) -> String {
-        // Handle COALESCE, GREATEST, LEAST, NULLIF, CURRENT_TIMESTAMP, etc.
-        let mut cursor = node.walk();
+        // Check for func_expr_common_subexpr children.
+        let subexpr = node.find_child("func_expr_common_subexpr").unwrap_or(node);
+
+        // CAST(expr AS type) → expr::type
+        if subexpr.has_child("kw_cast")
+            && let Some(expr) = subexpr.find_child_any(&["a_expr", "c_expr"])
+            && let Some(typename) = subexpr.find_child("Typename")
+        {
+            return format!(
+                "{}::{}",
+                self.format_expr(expr),
+                self.format_typename(typename)
+            );
+        }
+
+        // Handle COALESCE, GREATEST, LEAST, NULLIF, etc.
+        // These are function-like: KEYWORD(args)
+        if let Some(expr_list) = subexpr.find_child("expr_list") {
+            let items = flatten_list(expr_list, "expr_list");
+            let mut formatted: Vec<String> = items.iter().map(|i| self.format_expr(*i)).collect();
+            // Merge decimal fragments split by tree-sitter ERROR nodes
+            // (e.g., "0" + ".00" → "0.00").
+            let mut i = 0;
+            while i + 1 < formatted.len() {
+                if formatted[i].chars().all(|c| c.is_ascii_digit())
+                    && formatted[i + 1].starts_with('.')
+                    && formatted[i + 1][1..].chars().all(|c| c.is_ascii_digit())
+                {
+                    let merged = format!("{}{}", formatted[i], formatted[i + 1]);
+                    formatted[i] = merged;
+                    formatted.remove(i + 1);
+                } else {
+                    i += 1;
+                }
+            }
+            // Find the keyword name.
+            let mut name = String::new();
+            let mut cursor = subexpr.walk();
+            for child in subexpr.named_children(&mut cursor) {
+                if child.kind().starts_with("kw_") {
+                    name = self.kw(self.text(child));
+                    break;
+                }
+            }
+            return format!("{name}({})", formatted.join(", "));
+        }
+
+        // Other forms (CURRENT_TIMESTAMP, etc.).
+        let mut cursor = subexpr.walk();
         let mut parts = Vec::new();
-        for child in node.children(&mut cursor) {
+        for child in subexpr.children(&mut cursor) {
             if child.is_named() {
                 match child.kind() {
                     "func_application" => return self.format_func(child),
@@ -617,11 +740,14 @@ impl<'a> Formatter<'a> {
 
     fn format_over_clause(&self, node: Node<'a>) -> String {
         let mut parts = vec![self.kw("OVER")];
-        parts.push("(".to_string());
+        parts.push(" (".to_string());
+
+        // The window_specification contains the actual partition/order clauses.
+        let spec = node.find_child("window_specification").unwrap_or(node);
 
         let mut inner = Vec::new();
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
+        let mut cursor = spec.walk();
+        for child in spec.named_children(&mut cursor) {
             match child.kind() {
                 "opt_partition_clause" => {
                     inner.push(self.format_partition_clause(child));
@@ -689,33 +815,85 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_case_expr(&self, node: Node<'a>) -> String {
-        let mut parts = vec![self.kw("CASE")];
+        let case_kw = self.kw("CASE");
+        let end_kw = self.kw("END");
+        let mut case_arg: Option<String> = None;
+        let mut when_clauses: Vec<String> = Vec::new();
+        let mut else_parts: Option<String> = None;
+
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             match child.kind() {
                 "kw_case" | "kw_end" => {}
                 "case_arg" => {
                     if let Some(expr) = child.find_child_any(&["a_expr", "c_expr"]) {
-                        parts.push(self.format_expr(expr));
+                        case_arg = Some(self.format_expr(expr));
                     }
                 }
                 "when_clause_list" => {
                     let clauses = flatten_list(child, "when_clause_list");
                     for clause in clauses {
-                        parts.push(self.format_when_clause(clause));
+                        when_clauses.push(self.format_when_clause(clause));
                     }
                 }
                 "case_default" => {
                     if let Some(expr) = child.find_child_any(&["a_expr", "c_expr", "a_expr_prec"]) {
-                        parts.push(self.kw("ELSE"));
-                        parts.push(self.format_expr(expr));
+                        else_parts =
+                            Some(format!("{} {}", self.kw("ELSE"), self.format_expr(expr)));
                     }
                 }
                 _ => {}
             }
         }
-        parts.push(self.kw("END"));
-        parts.join(" ")
+
+        // Build the single-line version first.
+        let mut inline_parts = vec![case_kw.clone()];
+        if let Some(ref arg) = case_arg {
+            inline_parts.push(arg.clone());
+        }
+        for wc in &when_clauses {
+            inline_parts.push(wc.clone());
+        }
+        if let Some(ref ep) = else_parts {
+            inline_parts.push(ep.clone());
+        }
+        inline_parts.push(end_kw.clone());
+        let single_line = inline_parts.join(" ");
+
+        // Wrap CASE when the style wraps CASE+ELSE and there's an ELSE clause,
+        // or when the single-line version is excessively long.
+        let should_wrap = if self.config.wrap_case_else && else_parts.is_some() {
+            true
+        } else {
+            single_line.len() > 120
+        };
+        if !should_wrap {
+            return single_line;
+        }
+
+        // Multi-line: align WHEN/ELSE under the first WHEN, END indented 1 space.
+        // First line: "CASE [arg] WHEN ..."
+        // Continuation: "     WHEN ..." (indent = len("CASE ") + len(arg + " ") if present)
+        let prefix = match &case_arg {
+            Some(arg) => format!("{case_kw} {arg} "),
+            None => format!("{case_kw} "),
+        };
+        let when_indent = " ".repeat(prefix.len());
+        let end_indent = " ";
+
+        let mut lines = Vec::new();
+        for (i, wc) in when_clauses.iter().enumerate() {
+            if i == 0 {
+                lines.push(format!("{prefix}{wc}"));
+            } else {
+                lines.push(format!("{when_indent}{wc}"));
+            }
+        }
+        if let Some(ep) = &else_parts {
+            lines.push(format!("{when_indent}{ep}"));
+        }
+        lines.push(format!("{end_indent}{end_kw}"));
+        lines.join("\n")
     }
 
     fn format_when_clause(&self, node: Node<'a>) -> String {
@@ -732,6 +910,16 @@ impl<'a> Formatter<'a> {
             }
         }
         parts.join(" ")
+    }
+
+    fn format_array_expr(&self, node: Node<'a>) -> String {
+        // array_expr: [ expr_list ]
+        if let Some(expr_list) = node.find_child("expr_list") {
+            let items = flatten_list(expr_list, "expr_list");
+            let formatted: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
+            return format!("[{}]", formatted.join(", "));
+        }
+        self.text(node).to_string()
     }
 
     fn format_in_expr(&self, node: Node<'a>) -> String {
@@ -867,7 +1055,7 @@ impl<'a> Formatter<'a> {
             if child.is_named() {
                 match child.kind() {
                     "kw_integer" | "kw_int" | "kw_smallint" | "kw_bigint" | "kw_real"
-                    | "kw_boolean" | "kw_float" | "kw_decimal" => {
+                    | "kw_boolean" | "kw_float" | "kw_decimal" | "kw_numeric" => {
                         base = self.map_type_name(&self.text(child).to_lowercase());
                     }
                     "kw_double" => base = "DOUBLE".to_string(),
@@ -879,6 +1067,19 @@ impl<'a> Formatter<'a> {
                         }
                     }
                     "kw_varying" => extra_keywords.push("VARYING".to_string()),
+                    "opt_timezone" => {
+                        // WITH/WITHOUT TIME ZONE
+                        let mut tz_cursor = child.walk();
+                        for tz_child in child.named_children(&mut tz_cursor) {
+                            match tz_child.kind() {
+                                "kw_with" => extra_keywords.push(self.kw("WITH")),
+                                "kw_without" => extra_keywords.push(self.kw("WITHOUT")),
+                                "kw_time" => extra_keywords.push(self.kw("TIME")),
+                                "kw_zone" => extra_keywords.push(self.kw("ZONE")),
+                                _ => {}
+                            }
+                        }
+                    }
                     "kw_with" => extra_keywords.push(self.kw("WITH")),
                     "kw_without" => extra_keywords.push(self.kw("WITHOUT")),
                     "kw_time" => {
@@ -932,7 +1133,9 @@ impl<'a> Formatter<'a> {
         };
 
         if !extra_keywords.is_empty() {
-            result.push(' ');
+            if !result.is_empty() {
+                result.push(' ');
+            }
             result.push_str(&extra_keywords.join(" "));
         }
         if !modifiers.is_empty() {
@@ -997,6 +1200,7 @@ impl<'a> Formatter<'a> {
                 match child.kind() {
                     "ColId" => parts.push(self.format_col_id(child)),
                     "indirection" => parts.push(self.format_indirection(child)),
+                    "attrs" => parts.push(self.format_attrs(child)),
                     "attr_name" => {
                         // Schema-qualified: schema.name
                         parts.push(format!(".{}", self.format_expr(child)));
@@ -1029,12 +1233,22 @@ impl<'a> Formatter<'a> {
         {
             return self.format_alias(ac);
         }
+        let mut has_as = false;
         let mut parts = Vec::new();
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             match child.kind() {
-                "kw_as" => parts.push(self.kw("AS")),
-                "ColId" => parts.push(self.format_col_id(child)),
+                "kw_as" => {
+                    has_as = true;
+                    parts.push(self.kw("AS"));
+                }
+                "ColId" => {
+                    // Always add AS keyword for bare aliases.
+                    if !has_as {
+                        parts.push(self.kw("AS"));
+                    }
+                    parts.push(self.format_col_id(child));
+                }
                 _ => parts.push(self.format_expr(child)),
             }
         }
