@@ -411,6 +411,9 @@ impl<'a> Formatter<'a> {
                         .map(|n| self.format_typename(n))
                         .unwrap_or_default();
                     let mut constraint_parts = Vec::new();
+                    if let Some(opts) = col.find_child("create_generic_options") {
+                        constraint_parts.push(self.format_col_generic_options_inline(opts));
+                    }
                     if let Some(qual_list) = col.find_child("ColQualList") {
                         let constraints = flatten_list(qual_list, "ColQualList");
                         for child in constraints {
@@ -489,7 +492,10 @@ impl<'a> Formatter<'a> {
 
         let mut parts = vec![name, typename];
 
-        // Column constraints.
+        if let Some(opts) = node.find_child("create_generic_options") {
+            parts.push(self.format_col_generic_options_inline(opts));
+        }
+
         if let Some(qual_list) = node.find_child("ColQualList") {
             let constraints = flatten_list(qual_list, "ColQualList");
             for child in constraints {
@@ -933,19 +939,34 @@ impl<'a> Formatter<'a> {
         lines.join("\n")
     }
 
-    fn format_generic_options(&self, node: Node<'a>, lines: &mut Vec<String>) {
-        if let Some(opt_list) = node.find_child("generic_option_list") {
-            let items = flatten_list(opt_list, "generic_option_list");
-            let indent = self.config.indent;
+    fn collect_generic_options(&self, node: Node<'a>) -> Vec<String> {
+        let Some(opt_list) = node.find_child("generic_option_list") else {
+            return Vec::new();
+        };
+        flatten_list(opt_list, "generic_option_list")
+            .iter()
+            .map(|item| self.format_generic_option(*item))
+            .collect()
+    }
 
-            lines.push(format!("{} (", self.kw("OPTIONS")));
-            for (i, item) in items.iter().enumerate() {
-                let formatted = self.format_generic_option(*item);
-                let comma = if i < items.len() - 1 { "," } else { "" };
-                lines.push(format!("{indent}{formatted}{comma}"));
-            }
-            lines.push(")".to_string());
+    fn format_generic_options(&self, node: Node<'a>, lines: &mut Vec<String>) {
+        let items = self.collect_generic_options(node);
+        if items.is_empty() {
+            return;
         }
+        let indent = self.config.indent;
+        lines.push(format!("{} (", self.kw("OPTIONS")));
+        let last = items.len() - 1;
+        for (i, item) in items.iter().enumerate() {
+            let comma = if i < last { "," } else { "" };
+            lines.push(format!("{indent}{item}{comma}"));
+        }
+        lines.push(")".to_string());
+    }
+
+    fn format_col_generic_options_inline(&self, node: Node<'a>) -> String {
+        let items = self.collect_generic_options(node);
+        format!("{} ({})", self.kw("OPTIONS"), items.join(", "))
     }
 
     fn format_generic_option(&self, node: Node<'a>) -> String {
