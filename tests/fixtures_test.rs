@@ -256,6 +256,11 @@ fn dbt_select_cte() {
     run_fixture(Style::Dbt, "select_cte");
 }
 
+#[test]
+fn dbt_select_cte_multi() {
+    run_fixture(Style::Dbt, "select_cte_multi");
+}
+
 // ── GitLab fixtures ─────────────────────────────────────────────────────
 
 #[test]

@@ -1593,7 +1593,12 @@ impl<'a> Formatter<'a> {
                 }
 
                 if !self.config.compact_ctes {
-                    lines.push(")".to_string());
+                    let is_last = i == ctes.len() - 1;
+                    lines.push(if is_last {
+                        ")".to_string()
+                    } else {
+                        "),".to_string()
+                    });
                 }
             }
 
