@@ -536,7 +536,11 @@ impl<'a> Formatter<'a> {
 
     fn format_const(&self, node: Node<'a>) -> String {
         let mut cursor = node.walk();
-        if let Some(child) = node.named_children(&mut cursor).next() {
+        let named: Vec<_> = node.named_children(&mut cursor).collect();
+
+        // A single named child is a plain literal or boolean/null keyword.
+        if named.len() == 1 {
+            let child = named[0];
             return match child.kind() {
                 "Sconst" | "string_literal" => self.format_string_const(child),
                 "Iconst" | "integer_literal" | "Fconst" | "float_literal" => {
@@ -549,7 +553,60 @@ impl<'a> Formatter<'a> {
                 _ => self.format_expr(child),
             };
         }
+
+        // Multiple children: a typed string literal such as
+        // `INTERVAL '2 days'`, `DATE '2020-01-01'`, `INTERVAL '2' DAY`, or
+        // `INTERVAL(6) '2 days'`. Walk the children in order so the leading
+        // type name, optional `(precision)`, the string, and any trailing
+        // interval qualifier are all preserved.
+        if !named.is_empty() {
+            let mut result = String::new();
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.is_named() {
+                    match child.kind() {
+                        "Sconst" | "string_literal" => {
+                            result.push(' ');
+                            result.push_str(&self.format_string_const(child));
+                        }
+                        // Precision digit inside `(...)`, e.g. INTERVAL(6).
+                        "Iconst" | "integer_literal" => result.push_str(self.text(child)),
+                        // Trailing interval qualifier, e.g. DAY, HOUR TO MINUTE.
+                        "opt_interval" => {
+                            result.push(' ');
+                            result.push_str(&self.format_opt_interval(child));
+                        }
+                        // The leading type: ConstInterval, ConstTypename,
+                        // func_name (DATE), Numeric, etc.
+                        _ => result.push_str(&self.format_expr(child)),
+                    }
+                } else {
+                    match self.text(child).trim() {
+                        "(" => result.push('('),
+                        ")" => result.push(')'),
+                        _ => {}
+                    }
+                }
+            }
+            return result;
+        }
+
         self.text(node).to_string()
+    }
+
+    /// Format an interval qualifier (`opt_interval`), e.g. `DAY` or
+    /// `HOUR TO MINUTE`, applying keyword casing to each component.
+    fn format_opt_interval(&self, node: Node<'a>) -> String {
+        let mut cursor = node.walk();
+        let parts: Vec<String> = node
+            .named_children(&mut cursor)
+            .map(|child| self.format_expr(child))
+            .collect();
+        if parts.is_empty() {
+            self.text(node).trim().to_string()
+        } else {
+            parts.join(" ")
+        }
     }
 
     fn format_string_const(&self, node: Node<'a>) -> String {

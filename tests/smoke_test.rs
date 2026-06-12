@@ -81,3 +81,31 @@ where
 limit 10;";
     assert_eq!(result, expected, "\nGot:\n{result}");
 }
+
+// Regression for https://github.com/gmr/pgfmt/issues/7: typed string
+// literals (INTERVAL/DATE/TIMESTAMP '...') must keep their literal value.
+#[test]
+fn typed_literal_constants_river() {
+    let cases = [
+        ("SELECT INTERVAL '2 days'", "SELECT INTERVAL '2 days';"),
+        ("select interval '3 days'", "SELECT INTERVAL '3 days';"),
+        ("SELECT DATE '2020-01-01'", "SELECT DATE '2020-01-01';"),
+        (
+            "SELECT TIMESTAMP '2020-01-01 10:00'",
+            "SELECT TIMESTAMP '2020-01-01 10:00';",
+        ),
+        ("SELECT INTERVAL '2' DAY", "SELECT INTERVAL '2' DAY;"),
+        (
+            "SELECT INTERVAL(6) '2 days'",
+            "SELECT INTERVAL(6) '2 days';",
+        ),
+        (
+            "SELECT INTERVAL '1' HOUR TO MINUTE",
+            "SELECT INTERVAL '1' HOUR TO MINUTE;",
+        ),
+    ];
+    for (sql, expected) in cases {
+        let result = format(sql, Style::River).unwrap();
+        assert_eq!(result, expected, "\nInput: {sql}\nGot:\n{result}");
+    }
+}
