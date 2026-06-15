@@ -54,14 +54,23 @@ CREATE VIEW app.win AS
 CREATE VIEW app.uni AS
   SELECT id FROM app.users UNION SELECT user_id FROM app.orders;
 
--- Deferred (nested) shapes for later increments.
+-- Nested shapes: CTEs, CASE blocks, comma-separated FROM.
 CREATE VIEW app.recent_cte AS
   WITH recent AS (SELECT user_id, total FROM app.orders WHERE placed_at > now() - interval '7 days')
   SELECT user_id, sum(total) AS wk FROM recent GROUP BY user_id;
-CREATE VIEW app.sub AS
-  SELECT u.email FROM app.users u WHERE u.id IN (SELECT user_id FROM app.orders);
+CREATE VIEW app.two_cte AS
+  WITH x AS (SELECT id AS a FROM app.users), y AS (SELECT id AS b FROM app.orders)
+  SELECT x.a, y.b FROM x, y;
 CREATE VIEW app.distinct_case AS
   SELECT DISTINCT country, CASE WHEN active THEN 'on' ELSE 'off' END AS st FROM app.users;
+CREATE VIEW app.case_plain AS
+  SELECT id, CASE WHEN active THEN 'on' ELSE 'off' END AS st FROM app.users;
+CREATE VIEW app.case_first AS
+  SELECT CASE WHEN active THEN 1 ELSE 0 END AS x, id FROM app.users;
+
+-- Deferred (still unsupported): scalar subquery embedded in an expression.
+CREATE VIEW app.sub AS
+  SELECT u.email FROM app.users u WHERE u.id IN (SELECT user_id FROM app.orders);
 
 CREATE FUNCTION app.add(a integer, b integer) RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT a + b $$;
 CREATE FUNCTION app.bump(p_id bigint) RETURNS void LANGUAGE plpgsql AS $fn$
@@ -73,10 +82,10 @@ SQL
 
 echo "capturing fixtures ..."
 mkdir -p "$FIXDIR/_deferred"
-for v in us_users order_totals win uni; do
+for v in us_users order_totals win uni recent_cte two_cte distinct_case case_plain case_first; do
     cap "SELECT pg_get_viewdef('app.$v'::regclass, true);" > "$FIXDIR/view_$v.sql"
 done
-for v in recent_cte sub distinct_case; do
+for v in sub; do
     cap "SELECT pg_get_viewdef('app.$v'::regclass, true);" > "$FIXDIR/_deferred/view_$v.sql"
 done
 cap "SELECT pg_get_functiondef('app.add(integer,integer)'::regprocedure);" > "$FIXDIR/func_add.sql"
