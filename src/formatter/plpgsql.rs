@@ -54,6 +54,21 @@ impl<'a> Formatter<'a> {
                 .map(|n| self.text(n).trim().to_string())
                 .unwrap_or_default();
 
+            // Alias declaration: name ALIAS FOR target ;
+            if decl.has_child("kw_alias") {
+                let target = decl
+                    .named_children(&mut decl.walk())
+                    .last()
+                    .map(|n| self.text(n).trim().to_string())
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "{indent}{var_name} {} {} {target};",
+                    self.kw("ALIAS"),
+                    self.kw("FOR")
+                ));
+                return;
+            }
+
             let mut parts = vec![var_name];
 
             // Constant?
@@ -108,15 +123,24 @@ impl<'a> Formatter<'a> {
                 "stmt_foreach_a" => self.format_stmt_foreach(child, indent_level, lines),
                 "stmt_case" => self.format_stmt_case(child, indent_level, lines),
                 "stmt_return" => {
+                    let mut parts = vec![self.kw("RETURN")];
+                    // RETURN NEXT [expr] / RETURN QUERY [EXECUTE] ...
+                    if child.has_child("kw_next") {
+                        parts.push(self.kw("NEXT"));
+                    } else if child.has_child("kw_query") {
+                        parts.push(self.kw("QUERY"));
+                        if child.has_child("kw_execute") {
+                            parts.push(self.kw("EXECUTE"));
+                        }
+                    }
                     let expr = child
                         .find_child("sql_expression")
                         .map(|n| self.text(n).trim())
                         .unwrap_or("");
-                    if expr.is_empty() {
-                        lines.push(format!("{indent}{};", self.kw("RETURN")));
-                    } else {
-                        lines.push(format!("{indent}{} {expr};", self.kw("RETURN")));
+                    if !expr.is_empty() {
+                        parts.push(expr.to_string());
                     }
+                    lines.push(format!("{indent}{};", parts.join(" ")));
                 }
                 "stmt_raise" => self.format_stmt_raise(child, indent_level, lines),
                 "stmt_null" => {
@@ -261,24 +285,25 @@ impl<'a> Formatter<'a> {
             .map(|n| self.text(n).trim())
             .unwrap_or("");
 
-        // Determine if it's a FOR ... IN range or FOR ... IN query.
-        let in_clause = if let Some(range) = node.find_child("for_integer_range") {
-            self.text(range).trim().to_string()
-        } else if let Some(query) = node.find_child("for_control") {
-            self.text(query).trim().to_string()
-        } else {
-            // Fallback: reconstruct from source.
-            let text = self.text(node);
-            if let Some(start) = text.find("IN") {
-                if let Some(end) = text.find("LOOP") {
-                    text[start + 2..end].trim().to_string()
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            }
-        };
+        // The IN clause is one of the for_* variants (integer range, query,
+        // cursor, or dynamic EXECUTE). Each ends with a nested LOOP keyword, so
+        // take the variant's text up to that keyword.
+        let mut cursor2 = node.walk();
+        let in_clause = node
+            .named_children(&mut cursor2)
+            .find(|c| {
+                matches!(
+                    c.kind(),
+                    "for_integer_range" | "for_query" | "for_cursor" | "for_dynamic"
+                )
+            })
+            .map(|variant| match variant.find_child("kw_loop") {
+                Some(loop_kw) => self.source[variant.start_byte()..loop_kw.start_byte()]
+                    .trim()
+                    .to_string(),
+                None => self.text(variant).trim().to_string(),
+            })
+            .unwrap_or_default();
 
         let for_kw = self.kw("FOR");
         let in_kw = self.kw("IN");

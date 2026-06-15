@@ -31,3 +31,44 @@ BEGIN
 END;";
     assert_eq!(result, expected, "\nGot:\n{result}");
 }
+
+// Regression: declarations using multi-word type names, DEFAULT, and ALIAS FOR
+// a positional parameter previously failed to parse (grammar gaps), and the
+// ALIAS form dropped its target when formatting.
+#[test]
+fn declarations_types_default_alias() {
+    let body = "DECLARE\n  a character varying(50);\n  b double precision;\n  c timestamp with time zone;\n  d integer DEFAULT 0;\n  username ALIAS FOR $1;\nBEGIN\n  NULL;\nEND";
+    let result = format_plpgsql(body, Style::Aweber).unwrap();
+    let expected = "\
+DECLARE
+  a character varying(50);
+  b double precision;
+  c timestamp with time zone;
+  d integer DEFAULT 0;
+  username ALIAS FOR $1;
+BEGIN
+  NULL;
+END;";
+    assert_eq!(result, expected, "\nGot:\n{result}");
+}
+
+// Regression: `RETURN NEXT` (bare) failed to parse, and the formatter dropped
+// the NEXT keyword.
+#[test]
+fn return_next_bare() {
+    let body = "BEGIN\n  RETURN NEXT;\nEND";
+    let result = format_plpgsql(body, Style::Aweber).unwrap();
+    assert_eq!(result, "BEGIN\n  RETURN NEXT;\nEND;", "\nGot:\n{result}");
+}
+
+// Regression: a FOR loop over a query dropped the query text after IN.
+#[test]
+fn for_over_query_keeps_query() {
+    let body = "BEGIN\n  FOR r IN SELECT id FROM t LOOP\n    RETURN NEXT r;\n  END LOOP;\nEND";
+    let result = format_plpgsql(body, Style::Aweber).unwrap();
+    assert!(
+        result.contains("FOR r IN SELECT id FROM t LOOP"),
+        "query dropped from FOR clause:\n{result}"
+    );
+    assert!(result.contains("RETURN NEXT r;"), "\nGot:\n{result}");
+}
