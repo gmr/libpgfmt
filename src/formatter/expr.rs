@@ -1112,6 +1112,32 @@ impl<'a> Formatter<'a> {
         self.text(node).to_string()
     }
 
+    /// Flatten the wrapper nodes the grammar inserts for character/bit types
+    /// (`CharacterWithLength > character > kw_character + opt_varying`, etc.)
+    /// so the keyword, VARYING qualifier, and length token are all visible to
+    /// the single-pass type renderer below.
+    fn flatten_type_children(&self, node: Node<'a>) -> Vec<Node<'a>> {
+        const WRAPPERS: &[&str] = &[
+            "CharacterWithLength",
+            "CharacterWithoutLength",
+            "character",
+            "BitWithLength",
+            "BitWithoutLength",
+            "bit",
+            "opt_varying",
+        ];
+        let mut out = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.is_named() && WRAPPERS.contains(&child.kind()) {
+                out.extend(self.flatten_type_children(child));
+            } else {
+                out.push(child);
+            }
+        }
+        out
+    }
+
     fn format_typename_inner(&self, node: Node<'a>) -> String {
         // Get the base type name.
         let mut base = String::new();
@@ -1119,8 +1145,7 @@ impl<'a> Formatter<'a> {
         let mut extra_keywords = Vec::new();
         let mut timezone_keywords = Vec::new();
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
+        for child in self.flatten_type_children(node) {
             if child.is_named() {
                 match child.kind() {
                     "kw_integer" | "kw_int" | "kw_smallint" | "kw_bigint" | "kw_real"
@@ -1168,6 +1193,19 @@ impl<'a> Formatter<'a> {
                     }
                     "opt_type_modifiers" => {
                         modifiers = self.format_type_modifiers(child);
+                    }
+                    "Iconst" => {
+                        // Bare length token inside CharacterWithLength.
+                        modifiers = format!("({})", self.text(child).trim());
+                    }
+                    "expr_list" => {
+                        // Parenthesized length/precision args (e.g. BitWithLength
+                        // renders the length as ( expr_list )).
+                        let items: Vec<String> = flatten_list(child, "expr_list")
+                            .iter()
+                            .map(|e| self.format_expr(*e))
+                            .collect();
+                        modifiers = format!("({})", items.join(", "));
                     }
                     "attrs" => {
                         base.push_str(&self.format_attrs(child));
