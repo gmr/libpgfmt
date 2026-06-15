@@ -19,14 +19,15 @@
 //!   - a multi-line `CASE` target is a block at `8 + STEP*d`, its `WHEN`/`ELSE`
 //!     lines at `12 + STEP*d`, `END` back at `8 + STEP*d`;
 //!   - a CTE body renders at depth `d+1`; its closing paren sits at
-//!     `STEP*(d+1)`; set-operation keywords sit at column 1.
+//!     `STEP*(d+1)`; set-operation keywords sit at column 1, with a trailing
+//!     `ORDER BY` / `OFFSET` / `LIMIT` applying to the whole set operation;
+//!   - `OFFSET` and `LIMIT` (in that order) sit at the `SELECT` column.
 //!
-//! Subqueries embedded in WHERE / HAVING / target expressions (`IN (SELECT …)`,
-//! `EXISTS (…)`, scalar subqueries) are rendered inline at `d+1` and spliced
-//! back in. Not yet handled: subqueries in the FROM list (derived tables),
-//! GROUP BY / ORDER BY items or inside CASE arms. Statements the renderer
-//! doesn't recognize fall back to verbatim source (still idempotent on
-//! deparser output).
+//! Subqueries (`IN (SELECT …)`, `EXISTS (…)`, scalar subqueries, and FROM-list
+//! derived tables / subqueries on a JOIN's right side) are rendered inline at
+//! `d+1` and spliced back in. Not yet handled: subqueries inside GROUP BY items
+//! or CASE arms. Statements the renderer doesn't recognize fall back to
+//! verbatim source (still idempotent on deparser output).
 
 use crate::error::FormatError;
 use crate::formatter::Formatter;
@@ -92,20 +93,28 @@ impl<'a> Formatter<'a> {
     /// way ruleutils lays out `IN (SELECT ...)`, `EXISTS (SELECT ...)` and
     /// scalar subqueries. With no embedded subquery this is just `collapse_ws`.
     fn render_expr_text(&self, node: Node<'a>, depth: usize) -> String {
-        let mut subs = Vec::new();
-        self.collect_select_with_parens(node, &mut subs);
-        if subs.is_empty() {
-            return self.collapse_ws(self.text(node));
-        }
+        self.splice_range(node.start_byte(), node.end_byte(), node, depth)
+    }
+
+    /// Reproduce the source bytes `[start, end)` (searching `root` for embedded
+    /// subqueries), collapsing whitespace outside subqueries and rendering each
+    /// `select_with_parens` inline at `depth + 1`. Used for expressions, FROM
+    /// derived tables and JOIN steps alike.
+    fn splice_range(&self, start: usize, end: usize, root: Node<'a>, depth: usize) -> String {
+        let mut all = Vec::new();
+        self.collect_select_with_parens(root, &mut all);
         let full = self.source;
         let mut out = String::new();
-        let mut pos = node.start_byte();
-        for swp in subs {
+        let mut pos = start;
+        for swp in all {
+            if swp.start_byte() < start || swp.end_byte() > end {
+                continue;
+            }
             out.push_str(&self.collapse_preserve_edges(&full[pos..swp.start_byte()]));
             out.push_str(&self.render_select_with_parens(swp, depth));
             pos = swp.end_byte();
         }
-        out.push_str(&self.collapse_preserve_edges(&full[pos..node.end_byte()]));
+        out.push_str(&self.collapse_preserve_edges(&full[pos..end]));
         out
     }
 
@@ -206,22 +215,9 @@ impl<'a> Formatter<'a> {
             s.push_str(&self.render_expr_text(expr, depth));
         }
 
-        // ORDER BY
-        if let Some(sort) = c.sort_clause
-            && let Some(list) = sort.find_child("sortby_list")
-        {
-            let items: Vec<String> = flatten_list(list, "sortby_list")
-                .iter()
-                .map(|i| self.collapse_ws(self.text(*i)))
-                .collect();
-            s.push('\n');
-            s.push_str(&self.river_pad(5, depth));
-            s.push_str("ORDER BY ");
-            s.push_str(&items.join(", "));
-        }
-
         // Set operation (UNION / INTERSECT / EXCEPT): keyword at column 1, then
-        // the right-hand select rendered the same way.
+        // the right-hand select rendered the same way. ORDER BY / LIMIT below
+        // apply to the whole set operation, so they follow the right side.
         if let Some(so) = &c.set_op {
             s.push('\n');
             s.push_str(&so.keyword);
@@ -237,6 +233,34 @@ impl<'a> Formatter<'a> {
                 self.pgdump_render_clauses(&rc, depth)
             };
             s.push_str(&right);
+        }
+
+        // ORDER BY
+        if let Some(sort) = c.sort_clause
+            && let Some(list) = sort.find_child("sortby_list")
+        {
+            let items: Vec<String> = flatten_list(list, "sortby_list")
+                .iter()
+                .map(|i| self.render_expr_text(*i, depth))
+                .collect();
+            s.push('\n');
+            s.push_str(&self.river_pad(5, depth));
+            s.push_str("ORDER BY ");
+            s.push_str(&items.join(", "));
+        }
+
+        // OFFSET then LIMIT (ruleutils emits OFFSET first), both at the SELECT
+        // keyword's column.
+        let limit_lead = " ".repeat(STEP * depth + 1);
+        if let Some(off) = c.offset_clause {
+            s.push('\n');
+            s.push_str(&limit_lead);
+            s.push_str(&self.collapse_ws(self.text(off)));
+        }
+        if let Some(lim) = c.limit_clause {
+            s.push('\n');
+            s.push_str(&limit_lead);
+            s.push_str(&self.collapse_ws(self.text(lim)));
         }
 
         s
@@ -378,16 +402,19 @@ impl<'a> Formatter<'a> {
             node.find_child("joined_table")
         };
         let Some(jt) = joined else {
-            return self.collapse_ws(self.text(node));
+            // Plain relation or a derived table `( SELECT … ) alias`.
+            return self.render_expr_text(node, depth);
         };
         let Some(left) = jt.find_child("table_ref") else {
-            return self.collapse_ws(self.text(jt));
+            return self.render_expr_text(jt, depth);
         };
         let mut s = self.render_table_ref(left, depth);
-        let step = self.collapse_ws(&self.source[left.end_byte()..jt.end_byte()]);
+        // The JOIN step (keyword, right relation, ON/USING) may itself contain a
+        // derived table or subquery, so splice over its byte range.
+        let step = self.splice_range(left.end_byte(), jt.end_byte(), jt, depth);
         s.push('\n');
         s.push_str(&" ".repeat(STEP * depth + 5));
-        s.push_str(&step);
+        s.push_str(step.trim_start());
         s
     }
 

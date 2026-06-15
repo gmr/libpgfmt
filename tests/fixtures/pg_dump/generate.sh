@@ -77,6 +77,17 @@ CREATE VIEW app.sub_exists AS
 CREATE VIEW app.sub_scalar AS
   SELECT u.email, (SELECT count(*) FROM app.orders o WHERE o.user_id = u.id) AS n FROM app.users u;
 
+-- LIMIT / OFFSET, derived tables in FROM, set-op with trailing ORDER BY/LIMIT.
+CREATE VIEW app.lim AS
+  SELECT id FROM app.users ORDER BY id LIMIT 10 OFFSET 5;
+CREATE VIEW app.derived AS
+  SELECT s.email FROM (SELECT email FROM app.users WHERE active) s;
+CREATE VIEW app.derived_join AS
+  SELECT u.email, t.n FROM app.users u
+  JOIN (SELECT user_id, count(*) AS n FROM app.orders GROUP BY user_id) t ON t.user_id = u.id;
+CREATE VIEW app.union_order AS
+  SELECT id FROM app.users UNION SELECT user_id FROM app.orders ORDER BY 1 LIMIT 3;
+
 CREATE FUNCTION app.add(a integer, b integer) RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT a + b $$;
 CREATE FUNCTION app.bump(p_id bigint) RETURNS void LANGUAGE plpgsql AS $fn$
 BEGIN
@@ -86,7 +97,8 @@ $fn$;
 SQL
 
 echo "capturing fixtures ..."
-for v in us_users order_totals win uni recent_cte two_cte distinct_case case_plain case_first sub sub_exists sub_scalar; do
+for v in us_users order_totals win uni recent_cte two_cte distinct_case case_plain case_first \
+         sub sub_exists sub_scalar lim derived derived_join union_order; do
     cap "SELECT pg_get_viewdef('app.$v'::regclass, true);" > "$FIXDIR/view_$v.sql"
 done
 cap "SELECT pg_get_functiondef('app.add(integer,integer)'::regprocedure);" > "$FIXDIR/func_add.sql"
