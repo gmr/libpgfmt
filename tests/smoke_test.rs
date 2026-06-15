@@ -109,3 +109,31 @@ fn typed_literal_constants_river() {
         assert_eq!(result, expected, "\nInput: {sql}\nGot:\n{result}");
     }
 }
+
+#[test]
+fn cast_multiword_type_names() {
+    // Regression: multi-word type names in :: casts must not be truncated
+    // (e.g. `::character varying` previously dropped `varying`).
+    let cases = [
+        (
+            "SELECT a::character varying",
+            "SELECT a::CHARACTER VARYING;",
+        ),
+        ("SELECT a::varchar(50)", "SELECT a::VARCHAR(50);"),
+        ("SELECT a::char(10)", "SELECT a::CHAR(10);"),
+        (
+            "SELECT a::character varying(50)",
+            "SELECT a::CHARACTER VARYING(50);",
+        ),
+        ("SELECT a::double precision", "SELECT a::DOUBLE PRECISION;"),
+        ("SELECT a::bit varying(8)", "SELECT a::BIT VARYING(8);"),
+        (
+            "SELECT a::timestamp with time zone",
+            "SELECT a::TIMESTAMP WITH TIME ZONE;",
+        ),
+    ];
+    for (sql, expected) in cases {
+        let result = format(sql, Style::River).unwrap();
+        assert_eq!(result, expected, "\nInput: {sql}\nGot:\n{result}");
+    }
+}
