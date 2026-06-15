@@ -1,4 +1,5 @@
 mod expr;
+mod pgdump;
 mod plpgsql;
 mod select;
 mod stmt;
@@ -138,6 +139,22 @@ impl StyleConfig {
                 strip_inner_join: true,
                 wrap_case_else: true,
             },
+            // PgDump uses a dedicated renderer (see formatter::pgdump); these
+            // values are placeholders and are not consulted on that path.
+            Style::PgDump => Self {
+                upper_keywords: true,
+                indent: "    ",
+                leading_commas: false,
+                joins_in_river: false,
+                explicit_inner_join: false,
+                blank_lines_between_clauses: false,
+                river: false,
+                compact_ctes: false,
+                join_on_same_line: false,
+                blank_lines_in_ctes: false,
+                strip_inner_join: false,
+                wrap_case_else: false,
+            },
         }
     }
 }
@@ -166,7 +183,11 @@ impl<'a> Formatter<'a> {
             if child.kind() == "toplevel_stmt"
                 && let Some(stmt) = child.find_child("stmt")
             {
-                results.push(self.format_stmt(stmt)?);
+                if self.style == Style::PgDump {
+                    results.push(self.format_pgdump_stmt(stmt)?);
+                } else {
+                    results.push(self.format_stmt(stmt)?);
+                }
             }
         }
         if results.is_empty() {
