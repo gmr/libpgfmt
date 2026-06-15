@@ -169,8 +169,9 @@ impl<'a> Formatter<'a> {
                             self.kw("THEN")
                         ));
                         i += 3; // skip cond and THEN
+                    } else {
+                        i += 1; // closing IF (END IF)
                     }
-                    // Closing IF (END IF).
                 }
                 "sql_expression" => {
                     i += 1; // handled with IF/ELSIF
