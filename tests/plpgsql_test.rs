@@ -72,3 +72,13 @@ fn for_over_query_keeps_query() {
     );
     assert!(result.contains("RETURN NEXT r;"), "\nGot:\n{result}");
 }
+
+// Regression: format_plpgsql falls back to SQL formatting when the body is not
+// PL/pgSQL (e.g. a LANGUAGE sql function body), rather than erroring.
+#[test]
+fn sql_body_fallback() {
+    let body = "WITH t AS (SELECT 1 AS n) SELECT n FROM t";
+    let result = format_plpgsql(body, Style::Aweber).unwrap();
+    assert!(result.contains("SELECT"), "\nGot:\n{result}");
+    assert!(result.trim_end().ends_with(';'), "\nGot:\n{result}");
+}
