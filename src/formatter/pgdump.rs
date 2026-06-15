@@ -463,8 +463,9 @@ impl<'a> Formatter<'a> {
     }
 
     /// Render a `CREATE FUNCTION` statement in `pg_get_functiondef` layout:
-    /// signature on the first line, `RETURNS` and each option on its own
-    /// space-prefixed line, and the `AS` clause (body verbatim) last.
+    /// signature on the first line, then `RETURNS`, `LANGUAGE`, the grouped
+    /// behavior attributes, `SET`/`COST`/… and finally the `AS` clause (body
+    /// verbatim) or a SQL-standard `RETURN`.
     fn pgdump_create_function(&self, node: Node<'a>) -> String {
         let mut s = String::new();
 
@@ -481,33 +482,74 @@ impl<'a> Formatter<'a> {
             });
         s.push_str(&self.collapse_ws(&self.source[node.start_byte()..sig_end]));
 
-        // RETURNS <type>
-        if let Some(ret) = node.find_child("func_return") {
-            s.push_str("\n RETURNS ");
-            s.push_str(&self.collapse_ws(self.text(ret)));
-        }
-
-        // Options (LANGUAGE, volatility, STRICT, AS body, ...) in source order,
-        // which matches the deparser's canonical order on genuine input.
-        if let Some(opts) = node
+        let opts = node
             .find_child("opt_createfunc_opt_list")
             .and_then(|n| n.find_child("createfunc_opt_list"))
-            .or_else(|| node.find_child("createfunc_opt_list"))
-        {
-            for item in flatten_list(opts, "createfunc_opt_list") {
+            .or_else(|| node.find_child("createfunc_opt_list"));
+
+        // RETURNS spec (scalar, SETOF or TABLE(...)) — everything between the
+        // signature and the option list, rendered on its own line.
+        if let Some(ol) = opts {
+            let ret = self.collapse_ws(&self.source[sig_end..ol.start_byte()]);
+            if !ret.is_empty() {
+                s.push_str("\n ");
+                s.push_str(&ret);
+            }
+        }
+
+        // Options in source order (which matches the deparser's canonical
+        // order). pg_get_functiondef puts LANGUAGE, SET, COST, … each on their
+        // own line, but groups the behavior attributes (volatility, LEAKPROOF,
+        // STRICT, SECURITY, PARALLEL, WINDOW) together on one line.
+        if let Some(ol) = opts {
+            let mut behavior: Vec<String> = Vec::new();
+            for item in flatten_list(ol, "createfunc_opt_list") {
                 if let Some(as_kw) = item.find_child("kw_as") {
+                    self.flush_behavior(&mut s, &mut behavior);
                     // AS clause: body reproduced verbatim (dollar-quoted text
                     // may span multiple lines and must not be collapsed).
                     let body = self.source[as_kw.end_byte()..item.end_byte()].trim_start();
                     s.push_str("\nAS ");
                     s.push_str(body);
+                } else if self.is_behavior_opt(item) {
+                    behavior.push(self.collapse_ws(self.text(item)));
                 } else {
+                    self.flush_behavior(&mut s, &mut behavior);
                     s.push_str("\n ");
                     s.push_str(&self.collapse_ws(self.text(item)));
                 }
             }
+            self.flush_behavior(&mut s, &mut behavior);
+        }
+
+        // SQL-standard body: `RETURN expr` (no AS), emitted at column 0.
+        if let Some(body) = node.find_child("opt_routine_body") {
+            s.push('\n');
+            s.push_str(&self.collapse_ws(self.text(body)));
         }
 
         s
+    }
+
+    /// A `createfunc_opt_item` is a "behavior" attribute (grouped onto one line
+    /// by the deparser) when it wraps a `common_func_opt_item` that is not a
+    /// SET / COST / ROWS / SUPPORT clause (those get their own lines).
+    fn is_behavior_opt(&self, item: Node<'a>) -> bool {
+        let Some(cfo) = item.find_child("common_func_opt_item") else {
+            return false;
+        };
+        !(cfo.has_child("FunctionSetResetClause")
+            || cfo.has_child("kw_cost")
+            || cfo.has_child("kw_rows")
+            || cfo.has_child("kw_support"))
+    }
+
+    /// Emit any pending behavior attributes as a single space-joined line.
+    fn flush_behavior(&self, s: &mut String, behavior: &mut Vec<String>) {
+        if !behavior.is_empty() {
+            s.push_str("\n ");
+            s.push_str(&behavior.join(" "));
+            behavior.clear();
+        }
     }
 }

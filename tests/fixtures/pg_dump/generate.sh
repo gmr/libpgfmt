@@ -110,6 +110,16 @@ BEGIN
   UPDATE app.users SET active = true WHERE id = p_id;
 END;
 $fn$;
+-- Function variety: DEFAULT args, OUT params, VARIADIC, RETURNS TABLE/SETOF,
+-- grouped behavior attributes, SET, SQL-standard RETURN body.
+CREATE FUNCTION app.fn_default(a integer, b integer DEFAULT 0) RETURNS integer LANGUAGE sql AS $$ SELECT a + b $$;
+CREATE FUNCTION app.fn_out(IN a integer, OUT q integer, OUT r integer) LANGUAGE sql AS $$ SELECT a / 2, a % 2 $$;
+CREATE FUNCTION app.fn_variadic(VARIADIC arr integer[]) RETURNS integer LANGUAGE sql AS $$ SELECT array_length(arr, 1) $$;
+CREATE FUNCTION app.fn_table(x integer) RETURNS TABLE(a integer, b text) LANGUAGE sql AS $$ SELECT x, 'y'::text $$;
+CREATE FUNCTION app.fn_setof(x integer) RETURNS SETOF integer LANGUAGE sql AS $$ SELECT generate_series(1, x) $$;
+CREATE FUNCTION app.fn_behavior(x integer) RETURNS integer LANGUAGE sql STRICT IMMUTABLE PARALLEL SAFE AS $$ SELECT x $$;
+CREATE FUNCTION app.fn_set(x integer) RETURNS integer LANGUAGE sql SET search_path TO 'public' AS $$ SELECT x $$;
+CREATE FUNCTION app.fn_return(x integer) RETURNS integer LANGUAGE sql RETURN x + 1;
 SQL
 
 echo "capturing fixtures ..."
@@ -120,5 +130,8 @@ for v in us_users order_totals win uni recent_cte two_cte distinct_case case_pla
 done
 cap "SELECT pg_get_functiondef('app.add(integer,integer)'::regprocedure);" > "$FIXDIR/func_add.sql"
 cap "SELECT pg_get_functiondef('app.bump(bigint)'::regprocedure);" > "$FIXDIR/func_bump.sql"
+for f in fn_default fn_out fn_variadic fn_table fn_setof fn_behavior fn_set fn_return; do
+    cap "SELECT pg_get_functiondef(p.oid) FROM pg_proc p WHERE p.proname = '$f';" > "$FIXDIR/func_${f#fn_}.sql"
+done
 
 echo "done — fixtures written to $FIXDIR"
