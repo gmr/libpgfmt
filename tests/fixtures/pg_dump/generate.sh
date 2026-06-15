@@ -68,9 +68,14 @@ CREATE VIEW app.case_plain AS
 CREATE VIEW app.case_first AS
   SELECT CASE WHEN active THEN 1 ELSE 0 END AS x, id FROM app.users;
 
--- Deferred (still unsupported): scalar subquery embedded in an expression.
+-- Subqueries embedded in expressions (IN, EXISTS, scalar in target list).
 CREATE VIEW app.sub AS
   SELECT u.email FROM app.users u WHERE u.id IN (SELECT user_id FROM app.orders);
+CREATE VIEW app.sub_exists AS
+  SELECT u.email FROM app.users u
+  WHERE EXISTS (SELECT 1 FROM app.orders o WHERE o.user_id = u.id);
+CREATE VIEW app.sub_scalar AS
+  SELECT u.email, (SELECT count(*) FROM app.orders o WHERE o.user_id = u.id) AS n FROM app.users u;
 
 CREATE FUNCTION app.add(a integer, b integer) RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT a + b $$;
 CREATE FUNCTION app.bump(p_id bigint) RETURNS void LANGUAGE plpgsql AS $fn$
@@ -81,12 +86,8 @@ $fn$;
 SQL
 
 echo "capturing fixtures ..."
-mkdir -p "$FIXDIR/_deferred"
-for v in us_users order_totals win uni recent_cte two_cte distinct_case case_plain case_first; do
+for v in us_users order_totals win uni recent_cte two_cte distinct_case case_plain case_first sub sub_exists sub_scalar; do
     cap "SELECT pg_get_viewdef('app.$v'::regclass, true);" > "$FIXDIR/view_$v.sql"
-done
-for v in sub; do
-    cap "SELECT pg_get_viewdef('app.$v'::regclass, true);" > "$FIXDIR/_deferred/view_$v.sql"
 done
 cap "SELECT pg_get_functiondef('app.add(integer,integer)'::regprocedure);" > "$FIXDIR/func_add.sql"
 cap "SELECT pg_get_functiondef('app.bump(bigint)'::regprocedure);" > "$FIXDIR/func_bump.sql"

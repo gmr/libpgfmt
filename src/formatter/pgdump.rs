@@ -21,9 +21,12 @@
 //!   - a CTE body renders at depth `d+1`; its closing paren sits at
 //!     `STEP*(d+1)`; set-operation keywords sit at column 1.
 //!
-//! Not yet handled: scalar subqueries embedded in expressions (their layout is
-//! output-column-relative). Statements the renderer doesn't recognize fall
-//! back to verbatim source (still idempotent on deparser output).
+//! Subqueries embedded in WHERE / HAVING / target expressions (`IN (SELECT …)`,
+//! `EXISTS (…)`, scalar subqueries) are rendered inline at `d+1` and spliced
+//! back in. Not yet handled: subqueries in the FROM list (derived tables),
+//! GROUP BY / ORDER BY items or inside CASE arms. Statements the renderer
+//! doesn't recognize fall back to verbatim source (still idempotent on
+//! deparser output).
 
 use crate::error::FormatError;
 use crate::formatter::Formatter;
@@ -57,6 +60,86 @@ impl<'a> Formatter<'a> {
     /// the deparser's line breaks so the layout can be re-imposed.
     fn collapse_ws(&self, text: &str) -> String {
         text.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// Like [`collapse_ws`] but keeps a single boundary space when the original
+    /// began or ended with whitespace, so collapsed fragments concatenate with
+    /// correct spacing around a spliced-in subquery.
+    fn collapse_preserve_edges(&self, text: &str) -> String {
+        if text.is_empty() {
+            return String::new();
+        }
+        let lead = text.starts_with(char::is_whitespace);
+        let trail = text.ends_with(char::is_whitespace);
+        let core = self.collapse_ws(text);
+        if core.is_empty() {
+            return if lead || trail {
+                " ".into()
+            } else {
+                String::new()
+            };
+        }
+        format!(
+            "{}{core}{}",
+            if lead { " " } else { "" },
+            if trail { " " } else { "" }
+        )
+    }
+
+    /// Render an expression that may embed sub-`SELECT`s. Parts outside a
+    /// subquery are reproduced verbatim (whitespace collapsed); each
+    /// `select_with_parens` is rendered at `depth + 1` and spliced inline, the
+    /// way ruleutils lays out `IN (SELECT ...)`, `EXISTS (SELECT ...)` and
+    /// scalar subqueries. With no embedded subquery this is just `collapse_ws`.
+    fn render_expr_text(&self, node: Node<'a>, depth: usize) -> String {
+        let mut subs = Vec::new();
+        self.collect_select_with_parens(node, &mut subs);
+        if subs.is_empty() {
+            return self.collapse_ws(self.text(node));
+        }
+        let full = self.source;
+        let mut out = String::new();
+        let mut pos = node.start_byte();
+        for swp in subs {
+            out.push_str(&self.collapse_preserve_edges(&full[pos..swp.start_byte()]));
+            out.push_str(&self.render_select_with_parens(swp, depth));
+            pos = swp.end_byte();
+        }
+        out.push_str(&self.collapse_preserve_edges(&full[pos..node.end_byte()]));
+        out
+    }
+
+    /// Collect top-level `select_with_parens` nodes (not recursing into a
+    /// subquery once found), in source order.
+    fn collect_select_with_parens(&self, node: Node<'a>, out: &mut Vec<Node<'a>>) {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == "select_with_parens" {
+                out.push(child);
+            } else {
+                self.collect_select_with_parens(child, out);
+            }
+        }
+    }
+
+    /// Render a parenthesized subquery inline: `( <body at depth+1> )` with the
+    /// body's first line de-indented so `SELECT` follows the open paren and
+    /// subsequent clauses align at the deeper river column.
+    fn render_select_with_parens(&self, swp: Node<'a>, depth: usize) -> String {
+        let body = swp.find_child("select_no_parens").or_else(|| {
+            swp.find_child("SelectStmt")
+                .and_then(|s| s.find_child("select_no_parens"))
+        });
+        let Some(body) = body else {
+            return self.collapse_ws(self.text(swp));
+        };
+        let clauses = self.collect_select_clauses(body);
+        let inner = self.pgdump_render_clauses(&clauses, depth + 1);
+        let dedented = match inner.split_once('\n') {
+            Some((first, rest)) => format!("{}\n{rest}", first.trim_start()),
+            None => inner.trim_start().to_string(),
+        };
+        format!("( {dedented})")
     }
 
     /// Leading spaces so `word` (a right-aligned clause keyword's first token)
@@ -96,7 +179,7 @@ impl<'a> Formatter<'a> {
             s.push('\n');
             s.push_str(&self.river_pad(5, depth));
             s.push_str("WHERE ");
-            s.push_str(&self.collapse_ws(self.text(expr)));
+            s.push_str(&self.render_expr_text(expr, depth));
         }
 
         // GROUP BY
@@ -120,7 +203,7 @@ impl<'a> Formatter<'a> {
             s.push('\n');
             s.push_str(&self.river_pad(6, depth));
             s.push_str("HAVING ");
-            s.push_str(&self.collapse_ws(self.text(expr)));
+            s.push_str(&self.render_expr_text(expr, depth));
         }
 
         // ORDER BY
@@ -184,11 +267,11 @@ impl<'a> Formatter<'a> {
                 s.push_str(&self.render_case_block(*t, case_node, depth));
             } else if i == 0 {
                 s.push(' ');
-                s.push_str(&self.collapse_ws(self.text(*t)));
+                s.push_str(&self.render_expr_text(*t, depth));
             } else {
                 s.push('\n');
                 s.push_str(&cont);
-                s.push_str(&self.collapse_ws(self.text(*t)));
+                s.push_str(&self.render_expr_text(*t, depth));
             }
             if i != last {
                 s.push(',');
