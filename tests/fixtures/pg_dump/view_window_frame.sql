@@ -1,0 +1,3 @@
+ SELECT id,
+    sum(total) OVER (PARTITION BY user_id ORDER BY placed_at ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS run
+   FROM app.orders;

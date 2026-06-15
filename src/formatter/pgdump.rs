@@ -135,6 +135,13 @@ impl<'a> Formatter<'a> {
     /// body's first line de-indented so `SELECT` follows the open paren and
     /// subsequent clauses align at the deeper river column.
     fn render_select_with_parens(&self, swp: Node<'a>, depth: usize) -> String {
+        // Redundant grouping parens: `(( SELECT … ))` nests one
+        // select_with_parens directly inside another. The outer is a plain
+        // paren (no introducing space); recurse so only the innermost gets the
+        // `( SELECT` form and the depth increment.
+        if let Some(inner) = swp.find_child("select_with_parens") {
+            return format!("({})", self.render_select_with_parens(inner, depth));
+        }
         let body = swp.find_child("select_no_parens").or_else(|| {
             swp.find_child("SelectStmt")
                 .and_then(|s| s.find_child("select_no_parens"))

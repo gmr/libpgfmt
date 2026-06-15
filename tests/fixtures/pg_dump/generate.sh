@@ -88,6 +88,22 @@ CREATE VIEW app.derived_join AS
 CREATE VIEW app.union_order AS
   SELECT id FROM app.users UNION SELECT user_id FROM app.orders ORDER BY 1 LIMIT 3;
 
+-- Deeper / varied real-world shapes (validation sweep).
+CREATE VIEW app.nested_sub AS
+  SELECT id, email FROM app.users u1
+  WHERE EXISTS (SELECT 1 FROM app.orders o
+                WHERE o.user_id = u1.id AND o.total > (SELECT avg(total) FROM app.orders));
+CREATE VIEW app.lateral AS
+  SELECT t.uid, t.s FROM app.users u,
+  LATERAL (SELECT u.id AS uid, sum(total) AS s FROM app.orders o WHERE o.user_id = u.id GROUP BY u.id) t;
+CREATE VIEW app.window_frame AS
+  SELECT id, sum(total) OVER (PARTITION BY user_id ORDER BY placed_at
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS run FROM app.orders;
+CREATE VIEW app.distinct_on AS
+  SELECT DISTINCT ON (country) country, id FROM app.users ORDER BY country, id;
+CREATE VIEW app.filter_agg AS
+  SELECT count(*) FILTER (WHERE active) AS act, count(*) AS cnt FROM app.users;
+
 CREATE FUNCTION app.add(a integer, b integer) RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT a + b $$;
 CREATE FUNCTION app.bump(p_id bigint) RETURNS void LANGUAGE plpgsql AS $fn$
 BEGIN
@@ -98,7 +114,8 @@ SQL
 
 echo "capturing fixtures ..."
 for v in us_users order_totals win uni recent_cte two_cte distinct_case case_plain case_first \
-         sub sub_exists sub_scalar lim derived derived_join union_order; do
+         sub sub_exists sub_scalar lim derived derived_join union_order \
+         nested_sub lateral window_frame distinct_on filter_agg; do
     cap "SELECT pg_get_viewdef('app.$v'::regclass, true);" > "$FIXDIR/view_$v.sql"
 done
 cap "SELECT pg_get_functiondef('app.add(integer,integer)'::regprocedure);" > "$FIXDIR/func_add.sql"
