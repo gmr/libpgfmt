@@ -151,6 +151,13 @@ pub fn format_plpgsql(code: &str, style: Style) -> Result<String, FormatError> {
         .ok_or_else(|| FormatError::Parser("Failed to parse PL/pgSQL".into()))?;
     let root = tree.root_node();
     if root.has_error() {
+        // The body may not be PL/pgSQL at all — e.g. a LANGUAGE sql function
+        // body, which is a bare SQL statement (WITH … SELECT, etc.). Fall back
+        // to SQL formatting; if that parses cleanly, use it. Otherwise report
+        // the original PL/pgSQL syntax error.
+        if let Ok(sql) = format(trimmed, style) {
+            return Ok(sql);
+        }
         return Err(FormatError::Syntax(find_error_message(&root, trimmed)));
     }
     let fmt = Formatter::new(trimmed, style);
