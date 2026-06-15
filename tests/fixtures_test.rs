@@ -10,6 +10,7 @@ fn run_fixture(style: Style, name: &str) {
         Style::Gitlab => "gitlab",
         Style::Kickstarter => "kickstarter",
         Style::Mattmc3 => "mattmc3",
+        Style::PgDump => "pg_dump",
     };
     let base = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

@@ -60,7 +60,7 @@ impl<'a> Formatter<'a> {
     }
 
     /// Collect all clauses from a select_no_parens (or simple_select) node tree.
-    fn collect_select_clauses(&self, node: Node<'a>) -> SelectClauses<'a> {
+    pub(crate) fn collect_select_clauses(&self, node: Node<'a>) -> SelectClauses<'a> {
         let mut clauses = SelectClauses {
             distinct: None,
             targets: Vec::new(),

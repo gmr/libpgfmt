@@ -34,6 +34,11 @@ pub enum Style {
     Kickstarter,
     /// mattmc3 style — lowercase river with leading commas.
     Mattmc3,
+    /// PostgreSQL "internal" style — mimics the `ruleutils.c` deparser output
+    /// emitted by `pg_get_viewdef`/`pg_get_functiondef` (i.e. `pg_dump`). The
+    /// correctness bar is byte-identical round-tripping of genuine deparser
+    /// output.
+    PgDump,
 }
 
 impl Style {
@@ -46,6 +51,7 @@ impl Style {
         Style::Gitlab,
         Style::Kickstarter,
         Style::Mattmc3,
+        Style::PgDump,
     ];
 }
 
@@ -59,6 +65,7 @@ impl fmt::Display for Style {
             Style::Gitlab => write!(f, "gitlab"),
             Style::Kickstarter => write!(f, "kickstarter"),
             Style::Mattmc3 => write!(f, "mattmc3"),
+            Style::PgDump => write!(f, "pg_dump"),
         }
     }
 }
@@ -75,6 +82,7 @@ impl FromStr for Style {
             "gitlab" => Ok(Style::Gitlab),
             "kickstarter" => Ok(Style::Kickstarter),
             "mattmc3" => Ok(Style::Mattmc3),
+            "pg_dump" | "pgdump" | "postgres" => Ok(Style::PgDump),
             _ => Err(format!("Unsupported style: '{s}'")),
         }
     }
