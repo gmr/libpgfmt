@@ -1,0 +1,4 @@
+UPDATE t
+   SET a = s.a
+  FROM src AS s
+ WHERE t.id = s.id;

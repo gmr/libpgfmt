@@ -1,0 +1,4 @@
+DELETE
+  FROM t
+ USING other AS o
+ WHERE t.id = o.id;

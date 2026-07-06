@@ -80,6 +80,26 @@ impl<'a> Formatter<'a> {
                 parts[0] = format!("{} ({})", parts[0], formatted.join(", "));
             }
 
+            // OVERRIDING {SYSTEM|USER} VALUE (before VALUES/SELECT).
+            if rest.has_child("kw_overriding") {
+                let kind = rest
+                    .find_child("override_kind")
+                    .map(|ok| {
+                        if ok.has_child("kw_system") {
+                            self.kw("SYSTEM")
+                        } else {
+                            self.kw("USER")
+                        }
+                    })
+                    .unwrap_or_default();
+                parts[0] = format!(
+                    "{} {} {kind} {}",
+                    parts[0],
+                    self.kw("OVERRIDING"),
+                    self.kw("VALUE")
+                );
+            }
+
             // VALUES or SELECT.
             if let Some(select) = rest.find_child("SelectStmt") {
                 let formatted = self.format_select_stmt(select);
@@ -134,10 +154,83 @@ impl<'a> Formatter<'a> {
                     // Real SELECT or non-river VALUES: emit as-is.
                     parts.push(select_text.to_string());
                 }
+            } else if rest.has_child("kw_default") {
+                // INSERT INTO t DEFAULT VALUES.
+                parts[0] = format!("{} {} {}", parts[0], self.kw("DEFAULT"), self.kw("VALUES"));
+            }
+        }
+
+        // ON CONFLICT ... DO UPDATE/DO NOTHING.
+        if let Some(on_conflict) = node.find_child("opt_on_conflict") {
+            parts.push(self.format_on_conflict(on_conflict));
+        }
+
+        // RETURNING clause.
+        if let Some(ret) = node.find_child("returning_clause")
+            && let Some(text) = self.returning_text(ret)
+        {
+            if self.config.river {
+                let width = format!("{} {}", self.kw("INSERT"), self.kw("INTO")).len();
+                parts.push(self.river_line(&self.kw("RETURNING"), &text, width));
+            } else {
+                parts.push(format!("{} {text}", self.kw("RETURNING")));
             }
         }
 
         parts.join("\n")
+    }
+
+    /// Format an `opt_on_conflict` node into a single-line clause.
+    fn format_on_conflict(&self, node: Node<'a>) -> String {
+        let mut parts = vec![self.kw("ON"), self.kw("CONFLICT")];
+
+        // Conflict target: (col, ...) or ON CONSTRAINT name.
+        if let Some(conf) = node.find_child("opt_conf_expr") {
+            if let Some(idx) = conf.find_child("index_params") {
+                let items = flatten_list(idx, "index_params");
+                let cols: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
+                parts.push(format!("({})", cols.join(", ")));
+            } else if let Some(name) = conf.find_child("name") {
+                parts.push(format!(
+                    "{} {}",
+                    self.kw_pair("ON", "CONSTRAINT"),
+                    self.format_expr(name)
+                ));
+            }
+        }
+
+        parts.push(self.kw("DO"));
+        if node.has_child("kw_nothing") {
+            parts.push(self.kw("NOTHING"));
+        } else {
+            parts.push(self.kw("UPDATE"));
+            parts.push(self.kw("SET"));
+            if let Some(set_list) = node.find_child("set_clause_list") {
+                let clauses = flatten_list(set_list, "set_clause_list");
+                let formatted: Vec<_> =
+                    clauses.iter().map(|c| self.format_set_clause(*c)).collect();
+                parts.push(formatted.join(", "));
+            }
+            if let Some(where_c) = node.find_child("where_clause")
+                && let Some(expr) = where_c.find_child_any(&["a_expr", "c_expr"])
+            {
+                parts.push(format!("{} {}", self.kw("WHERE"), self.format_expr(expr)));
+            }
+        }
+
+        parts.join(" ")
+    }
+
+    /// Format the target list of a `returning_clause` into an inline,
+    /// comma-separated string. Returns `None` when there are no targets.
+    fn returning_text(&self, node: Node<'a>) -> Option<String> {
+        let target_list = node.find_child("target_list")?;
+        let targets = flatten_list(target_list, "target_list");
+        if targets.is_empty() {
+            return None;
+        }
+        let formatted: Vec<_> = targets.iter().map(|t| self.format_target_el(*t)).collect();
+        Some(formatted.join(", "))
     }
 
     // ── UPDATE ──────────────────────────────────────────────────────────
@@ -153,8 +246,14 @@ impl<'a> Formatter<'a> {
         if self.config.river {
             // Collect keywords for river width.
             let mut keywords = vec![self.kw("UPDATE"), self.kw("SET")];
+            if node.has_child("from_clause") {
+                keywords.push(self.kw("FROM"));
+            }
             if node.has_child("where_or_current_clause") {
                 keywords.push(self.kw("WHERE"));
+            }
+            if node.has_child("returning_clause") {
+                keywords.push(self.kw("RETURNING"));
             }
             let width = keywords.iter().map(|k| k.len()).max().unwrap_or(6);
 
@@ -193,9 +292,23 @@ impl<'a> Formatter<'a> {
                 }
             }
 
+            // FROM clause.
+            if let Some(from_c) = node.find_child("from_clause")
+                && let Some(from_list) = from_c.find_child("from_list")
+            {
+                self.format_relation_list_river(from_list, &self.kw("FROM"), width, &mut lines);
+            }
+
             // WHERE clause.
             if let Some(where_c) = node.find_child("where_or_current_clause") {
                 self.format_where_river(where_c, width, &mut lines);
+            }
+
+            // RETURNING clause.
+            if let Some(ret) = node.find_child("returning_clause")
+                && let Some(text) = self.returning_text(ret)
+            {
+                lines.push(self.river_line(&self.kw("RETURNING"), &text, width));
             }
         } else {
             lines.push(format!("{} {table}", self.kw("UPDATE")));
@@ -216,9 +329,23 @@ impl<'a> Formatter<'a> {
                 }
             }
 
+            // FROM clause.
+            if let Some(from_c) = node.find_child("from_clause")
+                && let Some(from_list) = from_c.find_child("from_list")
+            {
+                self.format_relation_list_left_aligned(from_list, &self.kw("FROM"), &mut lines);
+            }
+
             // WHERE clause.
             if let Some(where_c) = node.find_child("where_or_current_clause") {
                 self.format_where_left_aligned(where_c, &mut lines);
+            }
+
+            // RETURNING clause.
+            if let Some(ret) = node.find_child("returning_clause")
+                && let Some(text) = self.returning_text(ret)
+            {
+                lines.push(format!("{} {text}", self.kw("RETURNING")));
             }
         }
 
@@ -237,6 +364,57 @@ impl<'a> Formatter<'a> {
         format!("{target} = {value}")
     }
 
+    /// Render a `from_list` (the relations of an UPDATE ... FROM or a
+    /// DELETE ... USING) river-aligned under the given keyword. The first
+    /// relation shares the keyword line; the rest are indented to the content
+    /// column.
+    fn format_relation_list_river(
+        &self,
+        from_list: Node<'a>,
+        keyword: &str,
+        width: usize,
+        lines: &mut Vec<String>,
+    ) {
+        let tables = flatten_list(from_list, "from_list");
+        let last = tables.len().saturating_sub(1);
+        for (i, table) in tables.iter().enumerate() {
+            let mut text = self.format_table_ref(*table);
+            if i < last {
+                text.push(',');
+            }
+            if i == 0 {
+                lines.push(self.river_line(keyword, &text, width));
+            } else {
+                let padding = " ".repeat(width + 1);
+                lines.push(format!("{padding}{text}"));
+            }
+        }
+    }
+
+    /// Left-aligned counterpart of [`Self::format_relation_list_river`].
+    fn format_relation_list_left_aligned(
+        &self,
+        from_list: Node<'a>,
+        keyword: &str,
+        lines: &mut Vec<String>,
+    ) {
+        let indent = self.config.indent;
+        let tables = flatten_list(from_list, "from_list");
+        if tables.len() == 1 {
+            lines.push(format!("{keyword} {}", self.format_table_ref(tables[0])));
+            return;
+        }
+        lines.push(keyword.to_string());
+        let last = tables.len().saturating_sub(1);
+        for (i, table) in tables.iter().enumerate() {
+            let mut text = self.format_table_ref(*table);
+            if i < last {
+                text.push(',');
+            }
+            lines.push(format!("{indent}{text}"));
+        }
+    }
+
     // ── DELETE ──────────────────────────────────────────────────────────
 
     pub(crate) fn format_delete_stmt(&self, node: Node<'a>) -> String {
@@ -250,21 +428,56 @@ impl<'a> Formatter<'a> {
         if self.config.river {
             let delete_kw = self.kw("DELETE");
             let mut keywords = vec![delete_kw.clone(), self.kw("FROM")];
+            if node.has_child("using_clause") {
+                keywords.push(self.kw("USING"));
+            }
             if node.has_child("where_or_current_clause") {
                 keywords.push(self.kw("WHERE"));
+            }
+            if node.has_child("returning_clause") {
+                keywords.push(self.kw("RETURNING"));
             }
             let width = keywords.iter().map(|k| k.len()).max().unwrap_or(6);
 
             lines.push(delete_kw);
             lines.push(self.river_line(&self.kw("FROM"), &table, width));
 
+            // USING clause.
+            if let Some(using_c) = node.find_child("using_clause")
+                && let Some(from_list) = using_c.find_child("from_list")
+            {
+                self.format_relation_list_river(from_list, &self.kw("USING"), width, &mut lines);
+            }
+
             if let Some(where_c) = node.find_child("where_or_current_clause") {
                 self.format_where_river(where_c, width, &mut lines);
             }
+
+            // RETURNING clause.
+            if let Some(ret) = node.find_child("returning_clause")
+                && let Some(text) = self.returning_text(ret)
+            {
+                lines.push(self.river_line(&self.kw("RETURNING"), &text, width));
+            }
         } else {
             lines.push(format!("{} {} {table}", self.kw("DELETE"), self.kw("FROM")));
+
+            // USING clause.
+            if let Some(using_c) = node.find_child("using_clause")
+                && let Some(from_list) = using_c.find_child("from_list")
+            {
+                self.format_relation_list_left_aligned(from_list, &self.kw("USING"), &mut lines);
+            }
+
             if let Some(where_c) = node.find_child("where_or_current_clause") {
                 self.format_where_left_aligned(where_c, &mut lines);
+            }
+
+            // RETURNING clause.
+            if let Some(ret) = node.find_child("returning_clause")
+                && let Some(text) = self.returning_text(ret)
+            {
+                lines.push(format!("{} {text}", self.kw("RETURNING")));
             }
         }
 
@@ -279,9 +492,20 @@ impl<'a> Formatter<'a> {
             .map(|n| self.format_qualified_name(n))
             .unwrap_or_default();
 
+        let if_not_exists = if node.has_child("kw_if") {
+            format!(
+                "{} {} {} ",
+                self.kw("IF"),
+                self.kw("NOT"),
+                self.kw("EXISTS")
+            )
+        } else {
+            String::new()
+        };
+
         let mut lines = Vec::new();
         lines.push(format!(
-            "{} {} {table_name} (",
+            "{} {} {if_not_exists}{table_name} (",
             self.kw("CREATE"),
             self.kw("TABLE")
         ));
@@ -385,6 +609,45 @@ impl<'a> Formatter<'a> {
 
         lines.push(")".to_string());
 
+        // INHERITS (parent, ...).
+        if let Some(inh) = node.find_child("OptInherit")
+            && let Some(list) = inh.find_child("qualified_name_list")
+        {
+            let items = flatten_list(list, "qualified_name_list");
+            let formatted: Vec<_> = items
+                .iter()
+                .map(|q| self.format_qualified_name(*q))
+                .collect();
+            lines.push(format!(
+                "{} ({})",
+                self.kw("INHERITS"),
+                formatted.join(", ")
+            ));
+        }
+
+        // PARTITION BY { RANGE | LIST | HASH } (...).
+        if let Some(spec) = node
+            .find_child("OptPartitionSpec")
+            .and_then(|n| n.find_child("PartitionSpec"))
+        {
+            let method = spec
+                .find_child("ColId")
+                .map(|n| self.kw(self.text(n)))
+                .unwrap_or_default();
+            let cols = spec
+                .find_child("part_params")
+                .map(|pp| {
+                    let items = flatten_list(pp, "part_params");
+                    let formatted: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
+                    formatted.join(", ")
+                })
+                .unwrap_or_default();
+            lines.push(format!(
+                "{} {method} ({cols})",
+                self.kw_pair("PARTITION", "BY")
+            ));
+        }
+
         // WITH clause for storage parameters.
         // OptWith already contains the WITH keyword, so just normalize.
         if let Some(with) = node.find_child("OptWith") {
@@ -392,6 +655,17 @@ impl<'a> Formatter<'a> {
             if !text.is_empty() {
                 lines.push(text);
             }
+        }
+
+        // TABLESPACE name.
+        if let Some(ts) = node.find_child("OptTableSpace")
+            && let Some(name) = ts.find_child("name")
+        {
+            lines.push(format!(
+                "{} {}",
+                self.kw("TABLESPACE"),
+                self.format_expr(name)
+            ));
         }
 
         lines.join("\n")
@@ -623,7 +897,21 @@ impl<'a> Formatter<'a> {
     // ── CREATE VIEW ─────────────────────────────────────────────────────
 
     fn format_view_stmt(&self, node: Node<'a>) -> String {
-        let mut prefix = format!("{} {}", self.kw("CREATE"), self.kw("VIEW"));
+        let mut head = vec![self.kw("CREATE")];
+
+        // OR REPLACE.
+        if node.has_child("kw_or") && node.has_child("kw_replace") {
+            head.push(self.kw("OR"));
+            head.push(self.kw("REPLACE"));
+        }
+
+        // TEMP / TEMPORARY (and GLOBAL/LOCAL variants).
+        if let Some(temp) = node.find_child("OptTemp") {
+            head.push(self.kw(normalize_whitespace(self.text(temp)).as_str()));
+        }
+
+        head.push(self.kw("VIEW"));
+        let mut prefix = head.join(" ");
 
         // View name.
         let name = node
