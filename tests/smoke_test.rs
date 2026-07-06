@@ -1,3 +1,4 @@
+use libpgfmt::error::FormatError;
 use libpgfmt::{format, style::Style};
 
 #[test]
@@ -108,6 +109,18 @@ fn typed_literal_constants_river() {
         let result = format(sql, Style::River).unwrap();
         assert_eq!(result, expected, "\nInput: {sql}\nGot:\n{result}");
     }
+}
+
+// Regression for https://github.com/gmr/libpgfmt/issues/16: a broken
+// statement in multi-statement input must surface as a syntax error rather
+// than being silently dropped while the parseable statements are returned.
+#[test]
+fn broken_statement_errors_instead_of_dropping() {
+    let result = format("SELECT 1; THIS IS NOT SQL @@@;", Style::River);
+    assert!(
+        matches!(result, Err(FormatError::Syntax(_))),
+        "expected Err(FormatError::Syntax(..)), got {result:?}"
+    );
 }
 
 #[test]
