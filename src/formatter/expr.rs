@@ -413,6 +413,25 @@ impl<'a> Formatter<'a> {
                     last.push_str(&formatted);
                     continue;
                 }
+                // Field selection (e.g. `.bar`) attaches to the preceding
+                // expression with no space. When that base was parenthesized
+                // (its parens stripped above), restore them so `(foo).bar`
+                // keeps its composite-field meaning rather than becoming the
+                // column reference `foo.bar`.
+                if formatted.starts_with('.')
+                    && let Some(last) = target.last_mut()
+                {
+                    // Re-wrap unless the base is already fully enclosed in
+                    // outer parens. `contains('(')` would be too broad: a bare
+                    // function call like `foo(x)` contains `(` yet still needs
+                    // wrapping so `(foo(x)).bar` keeps its field-selection
+                    // meaning instead of collapsing to `foo(x).bar`.
+                    if !(last.starts_with('(') && last.ends_with(')')) {
+                        *last = format!("({last})");
+                    }
+                    last.push_str(&formatted);
+                    continue;
+                }
                 target.push(formatted);
             } else {
                 let text = self.text(child).trim();
@@ -726,11 +745,12 @@ impl<'a> Formatter<'a> {
             && let Some(typename) = subexpr.find_child("Typename")
         {
             let formatted = self.format_expr(expr);
-            // Parenthesized expressions, function calls like fn(...), and
-            // expressions without spaces (simple identifiers/literals) are safe.
-            // Anything else (e.g. "a + b", "x IS NOT NULL") needs wrapping.
-            let needs_parens =
-                formatted.contains(' ') && !formatted.starts_with('(') && !formatted.contains('(');
+            // A compound operand carries a top-level operator (a space outside
+            // any parens/quotes), e.g. "a + b", "foo(x) + 1", "x IS NOT NULL".
+            // Because :: binds tighter than those operators, such operands must
+            // be wrapped. Bare identifiers, literals, and single function calls
+            // like foo(x) have no top-level space and are left alone.
+            let needs_parens = has_top_level_space(&formatted);
             return if needs_parens {
                 format!("({formatted})::{}", self.format_typename(typename))
             } else {
@@ -1334,8 +1354,10 @@ impl<'a> Formatter<'a> {
         }
         // Join without extra spaces (dots already included).
         let result = parts.join("");
-        // Clean up any double dots.
-        result.replace("..", ".")
+        // Clean up any double dots produced by joining a separator with an
+        // attr's own leading dot, but never touch dots inside quoted
+        // identifiers (e.g. "a..b" is a single, distinct object name).
+        collapse_double_dots_outside_quotes(&result)
     }
 
     pub(crate) fn format_relation_expr(&self, node: Node<'a>) -> String {
@@ -1403,11 +1425,123 @@ impl<'a> Formatter<'a> {
     }
 }
 
+/// Collapse consecutive dots (`..` → `.`) that arise from joining a qualified
+/// name's separator with an attr's own leading dot, while leaving dots inside
+/// double-quoted identifiers untouched.
+fn collapse_double_dots_outside_quotes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut in_quote = false;
+    let mut prev_dot = false;
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+    while i < len {
+        let ch = chars[i];
+        if in_quote {
+            result.push(ch);
+            if ch == '"' {
+                if i + 1 < len && chars[i + 1] == '"' {
+                    result.push('"');
+                    i += 2;
+                    continue;
+                }
+                in_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+        if ch == '"' {
+            in_quote = true;
+            prev_dot = false;
+            result.push(ch);
+        } else if ch == '.' {
+            if !prev_dot {
+                result.push('.');
+            }
+            prev_dot = true;
+        } else {
+            prev_dot = false;
+            result.push(ch);
+        }
+        i += 1;
+    }
+    result
+}
+
+/// Returns true when `s` contains whitespace at the top level (outside any
+/// parentheses/brackets and outside quoted strings), indicating a compound
+/// operand such as `a + b` or `foo(x) + 1` rather than a bare identifier,
+/// literal, or single function call.
+fn has_top_level_space(s: &str) -> bool {
+    let mut depth: i32 = 0;
+    let mut in_single = false;
+    // True when the current single-quoted string is a PostgreSQL escape string
+    // (E'...'), which uses backslash escaping rather than only '' doubling.
+    let mut escape_string = false;
+    let mut in_double = false;
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+    while i < len {
+        let ch = chars[i];
+        if in_single {
+            // In an E'...' string a backslash escapes the next character, so a
+            // \' is not a terminator.
+            if escape_string && ch == '\\' && i + 1 < len {
+                i += 2;
+                continue;
+            }
+            if ch == '\'' {
+                // A doubled '' is an escaped quote, not a terminator.
+                if i + 1 < len && chars[i + 1] == '\'' {
+                    i += 2;
+                    continue;
+                }
+                in_single = false;
+                escape_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if ch == '"' {
+                if i + 1 < len && chars[i + 1] == '"' {
+                    i += 2;
+                    continue;
+                }
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+        match ch {
+            '\'' => {
+                in_single = true;
+                // An E/e immediately preceding the quote (and not part of a
+                // longer identifier) marks a backslash-escaped string literal.
+                escape_string = i >= 1
+                    && matches!(chars[i - 1], 'E' | 'e')
+                    && (i < 2 || !(chars[i - 2].is_ascii_alphanumeric() || chars[i - 2] == '_'));
+            }
+            '"' => in_double = true,
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            c if c.is_whitespace() && depth == 0 => return true,
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
 /// Collapse runs of whitespace to single spaces, but preserve whitespace
 /// inside single-quoted or double-quoted strings.
 fn collapse_whitespace_outside_quotes(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut in_single_quote = false;
+    // True when the current single-quoted string is a PostgreSQL escape string
+    // (E'...'), which uses backslash escaping rather than only '' doubling.
+    let mut escape_string = false;
     let mut in_double_quote = false;
     let mut prev_was_space = false;
 
@@ -1420,6 +1554,13 @@ fn collapse_whitespace_outside_quotes(s: &str) -> String {
 
         if in_single_quote {
             result.push(ch);
+            // In an E'...' string a backslash escapes the next character, so a
+            // \' is not a terminator and its following bytes stay untouched.
+            if escape_string && ch == '\\' && i + 1 < len {
+                result.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
             if ch == '\'' {
                 // Check for escaped quote ('').
                 if i + 1 < len && chars[i + 1] == '\'' {
@@ -1428,6 +1569,7 @@ fn collapse_whitespace_outside_quotes(s: &str) -> String {
                     continue;
                 }
                 in_single_quote = false;
+                escape_string = false;
             }
             i += 1;
             continue;
@@ -1449,6 +1591,11 @@ fn collapse_whitespace_outside_quotes(s: &str) -> String {
 
         if ch == '\'' {
             in_single_quote = true;
+            // An E/e immediately preceding the quote (and not part of a longer
+            // identifier) marks a backslash-escaped string literal.
+            escape_string = i >= 1
+                && matches!(chars[i - 1], 'E' | 'e')
+                && (i < 2 || !(chars[i - 2].is_ascii_alphanumeric() || chars[i - 2] == '_'));
             prev_was_space = false;
             result.push(ch);
         } else if ch == '"' {
