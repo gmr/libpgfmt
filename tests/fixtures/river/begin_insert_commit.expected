@@ -1,0 +1,6 @@
+BEGIN;
+
+INSERT INTO t
+     VALUES (1);
+
+COMMIT;

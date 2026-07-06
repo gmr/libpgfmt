@@ -179,11 +179,27 @@ fn has_structural_error(root: &tree_sitter::Node) -> bool {
     let has_valid_stmt = root
         .named_children(&mut cursor)
         .any(|c| c.kind() == "toplevel_stmt");
-    if has_valid_stmt {
-        return false;
+    if !has_valid_stmt {
+        // No valid statements at all — this is genuinely broken input.
+        return true;
     }
-    // No valid statements at all — this is genuinely broken input.
-    true
+    // At least one statement parsed, but a sibling statement may still be
+    // broken (tree-sitter emits an ERROR/MISSING node rather than a
+    // toplevel_stmt for it). Small ERROR leaf nodes (< 5 bytes, e.g. decimal
+    // fractions) are grammar limitations for otherwise-valid SQL and are
+    // tolerated; a MISSING node or a substantial ERROR node signals a
+    // genuinely unparseable statement that must not be silently dropped.
+    has_significant_error(root)
+}
+
+/// Recursively check for a MISSING node or a non-trivial ERROR node.
+fn has_significant_error(node: &tree_sitter::Node) -> bool {
+    if node.is_missing() || (node.is_error() && node.byte_range().len() >= 5) {
+        return true;
+    }
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .any(|child| has_significant_error(&child))
 }
 
 fn find_error_message(node: &tree_sitter::Node, source: &str) -> String {
