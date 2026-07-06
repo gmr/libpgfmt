@@ -384,6 +384,12 @@ impl<'a> Formatter<'a> {
                     "sql_expression" => {
                         parts.push(self.text(child).trim().to_string());
                     }
+                    "kw_using" => {
+                        parts.push(self.kw("USING"));
+                    }
+                    "raise_option" => {
+                        parts.push(self.format_raise_option(child));
+                    }
                     _ => {}
                 }
             } else {
@@ -400,23 +406,40 @@ impl<'a> Formatter<'a> {
         lines.push(format!("{indent}{};", parts.join(" ")));
     }
 
+    // Formats a single `RAISE ... USING` option as `KEYWORD = expression`.
+    fn format_raise_option(&self, node: Node<'a>) -> String {
+        let mut cursor = node.walk();
+        let mut opt_kw = String::new();
+        let mut opt_expr = String::new();
+        for c in node.named_children(&mut cursor) {
+            if c.kind().starts_with("kw_") {
+                opt_kw = self.kw(self.text(c).trim());
+            } else if c.kind() == "sql_expression" {
+                opt_expr = self.text(c).trim().to_string();
+            }
+        }
+        format!("{opt_kw} = {opt_expr}")
+    }
+
     fn format_exception_sect(&self, node: Node<'a>, indent_level: usize, lines: &mut Vec<String>) {
         let indent = "  ".repeat(indent_level);
         let mut cursor = node.walk();
+        // Each handler is wrapped in a `proc_exception` node containing the
+        // WHEN conditions and the handler body (`proc_sect`).
         for child in node.named_children(&mut cursor) {
-            match child.kind() {
-                "proc_conditions" => {
-                    let cond_text = self.text(child).trim();
-                    lines.push(format!(
-                        "{indent}{} {cond_text} {}",
-                        self.kw("WHEN"),
-                        self.kw("THEN")
-                    ));
-                }
-                "proc_sect" => {
-                    self.format_proc_sect(child, indent_level + 1, lines);
-                }
-                _ => {}
+            if child.kind() != "proc_exception" {
+                continue;
+            }
+            if let Some(conds) = child.find_child("proc_conditions") {
+                let cond_text = self.text(conds).trim();
+                lines.push(format!(
+                    "{indent}{} {cond_text} {}",
+                    self.kw("WHEN"),
+                    self.kw("THEN")
+                ));
+            }
+            if let Some(proc) = child.find_child("proc_sect") {
+                self.format_proc_sect(proc, indent_level + 1, lines);
             }
         }
     }
