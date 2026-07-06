@@ -27,6 +27,29 @@ fn preserve_adjacent_parens() {
     );
 }
 
+// https://github.com/gmr/pgfmt/issues/24 — rewriting CAST(x AS t) to x::t must
+// keep parens around a compound operand, because :: binds tighter than
+// arithmetic. Dropping them changes what gets cast.
+#[test]
+fn cast_wraps_compound_operand_with_function_call() {
+    let sql = "SELECT CAST(foo(x) + 1 AS integer);";
+    let result = format(sql, Style::River).unwrap();
+    assert!(
+        result.contains("(foo(x) + 1)::INTEGER"),
+        "CAST dropped required parens:\n{result}"
+    );
+}
+
+#[test]
+fn cast_leaves_bare_function_call_unparenthesized() {
+    let sql = "SELECT CAST(foo(x) AS integer);";
+    let result = format(sql, Style::River).unwrap();
+    assert!(
+        result.contains("foo(x)::INTEGER") && !result.contains("(foo(x))::INTEGER"),
+        "CAST over-parenthesized a simple operand:\n{result}"
+    );
+}
+
 // Formats `sql` in the Aweber style and asserts that (1) `expected_substr`
 // survives, (2) reformatting the output is idempotent, and (3) no line carries
 // trailing whitespace. Shared by the column-level CHECK regression tests.
