@@ -1,0 +1,5 @@
+SELECT id FROM accounts WHERE active FOR UPDATE;
+
+SELECT id FROM accounts FOR UPDATE OF a SKIP LOCKED;
+
+SELECT id FROM accounts FOR SHARE NOWAIT;
