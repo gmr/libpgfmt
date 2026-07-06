@@ -27,6 +27,30 @@ fn preserve_adjacent_parens() {
     );
 }
 
+// Formats `sql` in the Aweber style and asserts that (1) `expected_substr`
+// survives, (2) reformatting the output is idempotent, and (3) no line carries
+// trailing whitespace. Shared by the column-level CHECK regression tests.
+fn assert_idempotent_and_clean(sql: &str, expected_substr: &str) {
+    let once = format(sql, Style::Aweber).unwrap();
+    assert!(
+        once.contains(expected_substr),
+        "Expected substring {expected_substr:?} missing:\n{once}"
+    );
+    let twice = format(&once, Style::Aweber).unwrap();
+    assert_eq!(
+        once.trim(),
+        twice.trim(),
+        "Re-formatting was not idempotent:\n{twice}"
+    );
+    for line in once.lines() {
+        assert_eq!(
+            line.trim_end(),
+            line,
+            "Line has trailing whitespace: {line:?}\n{once}"
+        );
+    }
+}
+
 // https://github.com/gmr/pgfmt/issues/11 — a column-level CHECK constraint
 // requires its expression to stay parenthesized. Dropping the parens emits
 // invalid SQL that mis-parses on the next pass and corrupts the table.
@@ -38,26 +62,7 @@ fn preserve_col_check_parens_and_idempotent() {
     date_naissance DATE NOT NULL,
     code_postal CHAR(5)
 );";
-    let once = format(sql, Style::Aweber).unwrap();
-    assert!(
-        once.contains("CHECK (email_etudiant LIKE '_%@_%._%')"),
-        "Column CHECK parentheses were dropped:\n{once}"
-    );
-    let twice = format(&once, Style::Aweber).unwrap();
-    assert_eq!(
-        once.trim(),
-        twice.trim(),
-        "Re-formatting a formatted CREATE TABLE was not idempotent:\n{twice}"
-    );
-    // A trailing column without constraints must not leave the type-column
-    // padding as trailing whitespace.
-    for line in once.lines() {
-        assert_eq!(
-            line.trim_end(),
-            line,
-            "Line has trailing whitespace: {line:?}\n{once}"
-        );
-    }
+    assert_idempotent_and_clean(sql, "CHECK (email_etudiant LIKE '_%@_%._%')");
 }
 
 // render_aligned_column also drives CREATE FOREIGN TABLE, so the same
@@ -70,22 +75,5 @@ fn preserve_foreign_col_check_parens_and_idempotent() {
     date_naissance DATE NOT NULL,
     code_postal CHAR(5)
 ) SERVER remote_server;";
-    let once = format(sql, Style::Aweber).unwrap();
-    assert!(
-        once.contains("CHECK (email_etudiant LIKE '_%@_%._%')"),
-        "Foreign column CHECK parentheses were dropped:\n{once}"
-    );
-    let twice = format(&once, Style::Aweber).unwrap();
-    assert_eq!(
-        once.trim(),
-        twice.trim(),
-        "Re-formatting a formatted CREATE FOREIGN TABLE was not idempotent:\n{twice}"
-    );
-    for line in once.lines() {
-        assert_eq!(
-            line.trim_end(),
-            line,
-            "Line has trailing whitespace: {line:?}\n{once}"
-        );
-    }
+    assert_idempotent_and_clean(sql, "CHECK (email_etudiant LIKE '_%@_%._%')");
 }
