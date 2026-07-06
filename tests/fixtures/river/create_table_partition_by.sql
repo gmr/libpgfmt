@@ -1,0 +1,1 @@
+CREATE TABLE t (a int) PARTITION BY RANGE (a)
