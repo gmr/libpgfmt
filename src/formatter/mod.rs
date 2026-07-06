@@ -36,6 +36,9 @@ pub(crate) struct StyleConfig {
     pub strip_inner_join: bool,
     /// Wrap CASE expressions when ELSE is present (AWeber, mattmc3).
     pub wrap_case_else: bool,
+    /// Use the dedicated pg_dump/ruleutils renderer instead of the standard
+    /// statement formatter.
+    pub pg_dump: bool,
 }
 
 impl StyleConfig {
@@ -54,6 +57,7 @@ impl StyleConfig {
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
                 wrap_case_else: false,
+                pg_dump: false,
             },
             Style::Mozilla => Self {
                 upper_keywords: true,
@@ -68,6 +72,7 @@ impl StyleConfig {
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
                 wrap_case_else: false,
+                pg_dump: false,
             },
             Style::Aweber => Self {
                 upper_keywords: true,
@@ -82,6 +87,7 @@ impl StyleConfig {
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
                 wrap_case_else: true,
+                pg_dump: false,
             },
             Style::Dbt => Self {
                 upper_keywords: false,
@@ -96,6 +102,7 @@ impl StyleConfig {
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
                 wrap_case_else: false,
+                pg_dump: false,
             },
             Style::Gitlab => Self {
                 upper_keywords: true,
@@ -110,6 +117,7 @@ impl StyleConfig {
                 blank_lines_in_ctes: true,
                 strip_inner_join: false,
                 wrap_case_else: false,
+                pg_dump: false,
             },
             Style::Kickstarter => Self {
                 upper_keywords: true,
@@ -124,6 +132,7 @@ impl StyleConfig {
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
                 wrap_case_else: false,
+                pg_dump: false,
             },
             Style::Mattmc3 => Self {
                 upper_keywords: false,
@@ -138,6 +147,7 @@ impl StyleConfig {
                 blank_lines_in_ctes: false,
                 strip_inner_join: true,
                 wrap_case_else: true,
+                pg_dump: false,
             },
             // PgDump uses a dedicated renderer (see formatter::pgdump); these
             // values are placeholders and are not consulted on that path.
@@ -154,6 +164,7 @@ impl StyleConfig {
                 blank_lines_in_ctes: false,
                 strip_inner_join: false,
                 wrap_case_else: false,
+                pg_dump: true,
             },
         }
     }
@@ -187,7 +198,7 @@ impl<'a> Formatter<'a> {
                 // `TransactionStmtLegacy`). Format the inner statement in
                 // either case so it is not silently dropped.
                 let stmt = child.find_child("stmt").unwrap_or(child);
-                if self.style == Style::PgDump {
+                if self.config.pg_dump {
                     results.push(self.format_pgdump_stmt(stmt)?);
                 } else {
                     results.push(self.format_stmt(stmt)?);
