@@ -807,12 +807,25 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_over_clause(&self, node: Node<'a>) -> String {
-        // The window_specification contains the actual partition/order clauses.
-        let spec = node.find_child("window_specification").unwrap_or(node);
+        // `OVER (...)` with an inline window_specification holds the actual
+        // partition/order/frame clauses and stays parenthesized.
+        if let Some(spec) = node.find_child("window_specification") {
+            return format!(
+                "{} ({})",
+                self.kw("OVER"),
+                self.format_window_spec_body(spec)
+            );
+        }
+        // `OVER window_name` references a window defined in the WINDOW clause.
+        // This bare form is distinct from `OVER (window_name)` in PostgreSQL,
+        // so preserve it without adding parentheses.
+        if let Some(name) = node.find_child("ColId") {
+            return format!("{} {}", self.kw("OVER"), self.format_expr(name));
+        }
         format!(
             "{} ({})",
             self.kw("OVER"),
-            self.format_window_spec_body(spec)
+            self.format_window_spec_body(node)
         )
     }
 
