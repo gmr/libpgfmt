@@ -73,6 +73,36 @@ fn for_over_query_keeps_query() {
     assert!(result.contains("RETURN NEXT r;"), "\nGot:\n{result}");
 }
 
+// Regression (#26): the EXCEPTION handler body was dropped, leaving a bare
+// EXCEPTION keyword, because the code looked for proc_conditions/proc_sect as
+// direct children of exception_sect instead of inside each proc_exception node.
+#[test]
+fn exception_handler_body_preserved() {
+    let body = "BEGIN NULL; EXCEPTION WHEN OTHERS THEN RAISE; END";
+    let result = format_plpgsql(body, Style::Aweber).unwrap();
+    let expected = "\
+BEGIN
+  NULL;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE;
+END;";
+    assert_eq!(result, expected, "\nGot:\n{result}");
+}
+
+// Regression (#32): RAISE ... USING options (ERRCODE, MESSAGE, ...) were
+// dropped because only raise_level/string_literal/sql_expression were matched.
+#[test]
+fn raise_using_options_preserved() {
+    let body = "BEGIN RAISE EXCEPTION 'bad %', x USING ERRCODE = '22000', MESSAGE = 'boom'; END";
+    let result = format_plpgsql(body, Style::Aweber).unwrap();
+    let expected = "\
+BEGIN
+  RAISE EXCEPTION 'bad %', x USING ERRCODE = '22000', MESSAGE = 'boom';
+END;";
+    assert_eq!(result, expected, "\nGot:\n{result}");
+}
+
 // Regression: format_plpgsql falls back to SQL formatting when the body is not
 // PL/pgSQL (e.g. a LANGUAGE sql function body), rather than erroring.
 #[test]
