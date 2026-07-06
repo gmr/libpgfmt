@@ -421,7 +421,12 @@ impl<'a> Formatter<'a> {
                 if formatted.starts_with('.')
                     && let Some(last) = target.last_mut()
                 {
-                    if !last.contains('(') {
+                    // Re-wrap unless the base is already fully enclosed in
+                    // outer parens. `contains('(')` would be too broad: a bare
+                    // function call like `foo(x)` contains `(` yet still needs
+                    // wrapping so `(foo(x)).bar` keeps its field-selection
+                    // meaning instead of collapsing to `foo(x).bar`.
+                    if !(last.starts_with('(') && last.ends_with(')')) {
                         *last = format!("({last})");
                     }
                     last.push_str(&formatted);
@@ -1470,26 +1475,61 @@ fn collapse_double_dots_outside_quotes(s: &str) -> String {
 fn has_top_level_space(s: &str) -> bool {
     let mut depth: i32 = 0;
     let mut in_single = false;
+    // True when the current single-quoted string is a PostgreSQL escape string
+    // (E'...'), which uses backslash escaping rather than only '' doubling.
+    let mut escape_string = false;
     let mut in_double = false;
-    for ch in s.chars() {
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+    while i < len {
+        let ch = chars[i];
         if in_single {
-            if ch == '\'' {
-                in_single = false;
+            // In an E'...' string a backslash escapes the next character, so a
+            // \' is not a terminator.
+            if escape_string && ch == '\\' && i + 1 < len {
+                i += 2;
+                continue;
             }
-        } else if in_double {
+            if ch == '\'' {
+                // A doubled '' is an escaped quote, not a terminator.
+                if i + 1 < len && chars[i + 1] == '\'' {
+                    i += 2;
+                    continue;
+                }
+                in_single = false;
+                escape_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double {
             if ch == '"' {
+                if i + 1 < len && chars[i + 1] == '"' {
+                    i += 2;
+                    continue;
+                }
                 in_double = false;
             }
-        } else {
-            match ch {
-                '\'' => in_single = true,
-                '"' => in_double = true,
-                '(' | '[' => depth += 1,
-                ')' | ']' => depth -= 1,
-                c if c.is_whitespace() && depth == 0 => return true,
-                _ => {}
-            }
+            i += 1;
+            continue;
         }
+        match ch {
+            '\'' => {
+                in_single = true;
+                // An E/e immediately preceding the quote (and not part of a
+                // longer identifier) marks a backslash-escaped string literal.
+                escape_string = i >= 1
+                    && matches!(chars[i - 1], 'E' | 'e')
+                    && (i < 2 || !(chars[i - 2].is_ascii_alphanumeric() || chars[i - 2] == '_'));
+            }
+            '"' => in_double = true,
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            c if c.is_whitespace() && depth == 0 => return true,
+            _ => {}
+        }
+        i += 1;
     }
     false
 }
