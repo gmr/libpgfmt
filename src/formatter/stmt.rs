@@ -332,13 +332,13 @@ impl<'a> Formatter<'a> {
                     all_items.push(pk.clone());
                 }
                 for (name, typename, constraints) in &col_elements {
-                    let padded_name = format!("{:width$}", name, width = max_name_len);
-                    let padded_type = format!("{:width$}", typename, width = max_type_len);
-                    let mut item = format!("{padded_name} {padded_type}");
-                    if !constraints.is_empty() {
-                        item = format!("{item} {constraints}");
-                    }
-                    all_items.push(item);
+                    all_items.push(render_aligned_column(
+                        name,
+                        typename,
+                        constraints,
+                        max_name_len,
+                        max_type_len,
+                    ));
                 }
                 // Table constraints: CONSTRAINT name on one line,
                 // CHECK(...) on the next, both aligned with the type column.
@@ -523,6 +523,7 @@ impl<'a> Formatter<'a> {
 
     fn format_col_constraint_elem(&self, node: Node<'a>) -> String {
         let mut parts = Vec::new();
+        let mut has_check = false;
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             match child.kind() {
@@ -532,10 +533,23 @@ impl<'a> Formatter<'a> {
                 "kw_key" => parts.push(self.kw("KEY")),
                 "kw_unique" => parts.push(self.kw("UNIQUE")),
                 "kw_default" => parts.push(self.kw("DEFAULT")),
-                "kw_check" => parts.push(self.kw("CHECK")),
+                "kw_check" => {
+                    has_check = true;
+                    parts.push(self.kw("CHECK"));
+                }
                 "kw_references" => parts.push(self.kw("REFERENCES")),
                 "a_expr" | "c_expr" | "b_expr" => {
-                    parts.push(self.format_expr(child));
+                    // A column-level CHECK constraint requires its expression to
+                    // be parenthesized; DEFAULT and others do not. Only add a
+                    // pair when the expression is not already a single
+                    // parenthesized group, so `CHECK ((x))` collapses to
+                    // `CHECK (x)` rather than doubling up.
+                    let expr = self.format_expr(child);
+                    if has_check && !is_wrapped_in_parens(&expr) {
+                        parts.push(format!("({expr})"));
+                    } else {
+                        parts.push(expr);
+                    }
                 }
                 _ if child.kind().starts_with("kw_") => {
                     parts.push(self.kw(self.text(child)));
@@ -888,12 +902,13 @@ impl<'a> Formatter<'a> {
                     let comma = if i < total - 1 { "," } else { "" };
                     match elem {
                         TableElementKind::Column(name, typename, constraints) => {
-                            let padded_name = format!("{:width$}", name, width = max_name_len);
-                            let padded_type = format!("{:width$}", typename, width = max_type_len);
-                            let mut item = format!("{padded_name} {padded_type}");
-                            if !constraints.is_empty() {
-                                item = format!("{item} {constraints}");
-                            }
+                            let item = render_aligned_column(
+                                name,
+                                typename,
+                                constraints,
+                                max_name_len,
+                                max_type_len,
+                            );
                             lines.push(format!("{indent}{item}{comma}"));
                         }
                         TableElementKind::PrimaryKey(text)
@@ -1038,6 +1053,53 @@ impl<'a> Formatter<'a> {
     }
 
     // format_where_river and format_where_left_aligned are defined in select.rs
+}
+
+/// Render one river-aligned column: the name padded to `max_name_len`, then the
+/// type padded to `max_type_len` only when `constraints` follow it — a column
+/// with no constraints is left unpadded so it emits no trailing whitespace.
+fn render_aligned_column(
+    name: &str,
+    typename: &str,
+    constraints: &str,
+    max_name_len: usize,
+    max_type_len: usize,
+) -> String {
+    let padded_name = format!("{:width$}", name, width = max_name_len);
+    if constraints.is_empty() {
+        format!("{padded_name} {typename}")
+    } else {
+        let padded_type = format!("{:width$}", typename, width = max_type_len);
+        format!("{padded_name} {padded_type} {constraints}")
+    }
+}
+
+/// Returns true when `s` is a single expression already enclosed in one outer
+/// pair of parentheses, e.g. `(a AND b)` — but not `(a) AND (b)`, where the
+/// first `(` closes before the end. Parentheses inside string literals are
+/// ignored.
+fn is_wrapped_in_parens(s: &str) -> bool {
+    let s = s.trim();
+    let bytes = s.as_bytes();
+    if bytes.first() != Some(&b'(') || bytes.last() != Some(&b')') {
+        return false;
+    }
+    let mut depth = 0usize;
+    let mut in_str = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'\'' => in_str = !in_str,
+            b'(' if !in_str => depth += 1,
+            b')' if !in_str => {
+                depth -= 1;
+                if depth == 0 && i != bytes.len() - 1 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
 }
 
 /// Parse a dollar-quoted string into (tag, body).
