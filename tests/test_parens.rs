@@ -59,3 +59,33 @@ fn preserve_col_check_parens_and_idempotent() {
         );
     }
 }
+
+// render_aligned_column also drives CREATE FOREIGN TABLE, so the same
+// column-level CHECK parenthesization must hold there. See gmr/pgfmt#11.
+#[test]
+fn preserve_foreign_col_check_parens_and_idempotent() {
+    let sql = "CREATE FOREIGN TABLE etudiant (
+    email_etudiant VARCHAR(50) CHECK (email_etudiant LIKE '_%@_%._%'),
+    nom_etudiant VARCHAR(50) NOT NULL,
+    date_naissance DATE NOT NULL,
+    code_postal CHAR(5)
+) SERVER remote_server;";
+    let once = format(sql, Style::Aweber).unwrap();
+    assert!(
+        once.contains("CHECK (email_etudiant LIKE '_%@_%._%')"),
+        "Foreign column CHECK parentheses were dropped:\n{once}"
+    );
+    let twice = format(&once, Style::Aweber).unwrap();
+    assert_eq!(
+        once.trim(),
+        twice.trim(),
+        "Re-formatting a formatted CREATE FOREIGN TABLE was not idempotent:\n{twice}"
+    );
+    for line in once.lines() {
+        assert_eq!(
+            line.trim_end(),
+            line,
+            "Line has trailing whitespace: {line:?}\n{once}"
+        );
+    }
+}
