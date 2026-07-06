@@ -807,12 +807,18 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_over_clause(&self, node: Node<'a>) -> String {
-        let mut parts = vec![self.kw("OVER")];
-        parts.push(" (".to_string());
-
         // The window_specification contains the actual partition/order clauses.
         let spec = node.find_child("window_specification").unwrap_or(node);
+        format!(
+            "{} ({})",
+            self.kw("OVER"),
+            self.format_window_spec_body(spec)
+        )
+    }
 
+    /// Format the inner contents (PARTITION BY / ORDER BY / frame) of a
+    /// window specification, without the surrounding parentheses.
+    pub(crate) fn format_window_spec_body(&self, spec: Node<'a>) -> String {
         let mut inner = Vec::new();
         let mut cursor = spec.walk();
         for child in spec.named_children(&mut cursor) {
@@ -827,9 +833,7 @@ impl<'a> Formatter<'a> {
                 _ => inner.push(self.format_expr(child)),
             }
         }
-        parts.push(inner.join(" "));
-        parts.push(")".to_string());
-        parts.join("")
+        inner.join(" ")
     }
 
     fn format_partition_clause(&self, node: Node<'a>) -> String {

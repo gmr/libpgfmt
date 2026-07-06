@@ -17,6 +17,10 @@ pub(crate) struct SelectClauses<'a> {
     pub limit_clause: Option<Node<'a>>,
     pub offset_clause: Option<Node<'a>>,
     pub with_clause: Option<Node<'a>>,
+    /// WINDOW clause (named window definitions).
+    pub window_clause: Option<Node<'a>>,
+    /// FOR UPDATE / FOR SHARE (row-level locking).
+    pub for_locking: Option<Node<'a>>,
     /// For UNION / INTERSECT / EXCEPT.
     pub set_op: Option<SetOp<'a>>,
     /// VALUES clause (for INSERT ... VALUES).
@@ -72,6 +76,8 @@ impl<'a> Formatter<'a> {
             limit_clause: None,
             offset_clause: None,
             with_clause: None,
+            window_clause: None,
+            for_locking: None,
             set_op: None,
             values_clause: None,
         };
@@ -119,6 +125,8 @@ impl<'a> Formatter<'a> {
                     self.collect_limit_clauses(*child, clauses);
                 }
                 "offset_clause" => clauses.offset_clause = Some(*child),
+                "window_clause" => clauses.window_clause = Some(*child),
+                "for_locking_clause" => clauses.for_locking = Some(*child),
                 "kw_union" | "kw_intersect" | "kw_except" => {
                     seen_set_op = true;
                     // Set operation — find the right side.
@@ -167,6 +175,8 @@ impl<'a> Formatter<'a> {
                             limit_clause: None,
                             offset_clause: None,
                             with_clause: None,
+                            window_clause: None,
+                            for_locking: None,
                             set_op: None,
                             values_clause: None,
                         };
@@ -329,6 +339,12 @@ impl<'a> Formatter<'a> {
             self.format_having_river(having, river_width, &mut lines);
         }
 
+        // WINDOW clause.
+        if let Some(window) = clauses.window_clause {
+            let content = self.format_window_clause(window);
+            lines.push(self.river_line(&self.kw("WINDOW"), &content, river_width));
+        }
+
         // ORDER BY clause.
         if let Some(sort) = clauses.sort_clause {
             self.format_order_by_river(sort, river_width, &mut lines);
@@ -340,6 +356,13 @@ impl<'a> Formatter<'a> {
         }
         if let Some(offset) = clauses.offset_clause {
             self.format_offset_river(offset, river_width, &mut lines);
+        }
+
+        // FOR UPDATE / FOR SHARE locking.
+        if let Some(for_locking) = clauses.for_locking {
+            for content in self.format_for_locking_items(for_locking) {
+                lines.push(self.river_line(&self.kw("FOR"), &content, river_width));
+            }
         }
 
         let mut result = lines.join("\n");
@@ -393,6 +416,9 @@ impl<'a> Formatter<'a> {
         if clauses.having_clause.is_some() {
             keywords.push(self.kw("HAVING"));
         }
+        if clauses.window_clause.is_some() {
+            keywords.push(self.kw("WINDOW"));
+        }
         if clauses.sort_clause.is_some() {
             keywords.push(self.kw_pair("ORDER", "BY"));
         }
@@ -401,6 +427,9 @@ impl<'a> Formatter<'a> {
         }
         if clauses.offset_clause.is_some() {
             keywords.push(self.kw("OFFSET"));
+        }
+        if clauses.for_locking.is_some() {
+            keywords.push(self.kw("FOR"));
         }
         keywords
     }
@@ -592,22 +621,14 @@ impl<'a> Formatter<'a> {
             if tables.is_empty() {
                 return;
             }
-            let has_multiple_non_join = tables
-                .iter()
-                .filter(|t| !(t.kind() == "table_ref" && t.has_child("joined_table")))
-                .count()
-                > 1;
             for (i, table) in tables.iter().enumerate() {
+                let is_last = i == tables.len() - 1;
                 if table.kind() == "table_ref" && table.has_child("joined_table") {
                     // Table with JOINs.
                     let jt = table.find_child("joined_table").unwrap();
                     self.format_joined_table_river(jt, width, i == 0, lines);
                 } else {
-                    let mut text = self.format_table_ref(*table);
-                    // Append comma between non-join tables in a comma-separated FROM list.
-                    if has_multiple_non_join && i < tables.len() - 1 {
-                        text = format!("{text},");
-                    }
+                    let text = self.format_table_ref(*table);
                     if i == 0 {
                         lines.push(self.river_line(&self.kw("FROM"), &text, width));
                     } else {
@@ -615,6 +636,11 @@ impl<'a> Formatter<'a> {
                         let padding = " ".repeat(content_col);
                         lines.push(format!("{padding}{text}"));
                     }
+                }
+                // A comma separates each FROM item from the next, whether the
+                // items are plain tables or JOIN groups.
+                if !is_last && let Some(last) = lines.last_mut() {
+                    last.push(',');
                 }
             }
         }
@@ -827,6 +853,14 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_limit_river(&self, node: Node<'a>, width: usize, lines: &mut Vec<String>) {
+        // SQL-standard FETCH FIRST n ROWS ONLY form is preserved as-is.
+        if node.has_child("kw_fetch") {
+            let content = self.format_fetch_first(node);
+            if !content.is_empty() {
+                lines.push(self.river_line(&self.kw("FETCH"), &content, width));
+            }
+            return;
+        }
         let value = self.extract_limit_value(node);
         if !value.is_empty() {
             lines.push(self.river_line(&self.kw("LIMIT"), &value, width));
@@ -862,6 +896,116 @@ impl<'a> Formatter<'a> {
             return self.format_expr(expr);
         }
         String::new()
+    }
+
+    /// Format a `FETCH FIRST n ROWS ONLY` clause, returning the text after the
+    /// leading `FETCH` keyword (e.g. `FIRST 5 ROWS ONLY`).
+    fn format_fetch_first(&self, node: Node<'a>) -> String {
+        let mut parts = Vec::new();
+        for child in node.named_children_vec() {
+            match child.kind() {
+                "kw_fetch" => {} // rendered as the leading keyword
+                "first_or_next" => {
+                    if child.has_child("kw_next") {
+                        parts.push(self.kw("NEXT"));
+                    } else {
+                        parts.push(self.kw("FIRST"));
+                    }
+                }
+                "select_fetch_first_value" => {
+                    if let Some(expr) = child.find_child_any(&["a_expr", "c_expr"]) {
+                        parts.push(self.format_expr(expr));
+                    } else {
+                        parts.push(self.text(child).trim().to_string());
+                    }
+                }
+                "row_or_rows" => {
+                    if child.has_child("kw_row") {
+                        parts.push(self.kw("ROW"));
+                    } else {
+                        parts.push(self.kw("ROWS"));
+                    }
+                }
+                "kw_only" => parts.push(self.kw("ONLY")),
+                "kw_with" => parts.push(self.kw("WITH")),
+                "kw_ties" => parts.push(self.kw("TIES")),
+                _ => {}
+            }
+        }
+        parts.join(" ")
+    }
+
+    /// Format the named window definitions of a `WINDOW` clause, e.g.
+    /// `w AS (PARTITION BY id ORDER BY id)`.
+    fn format_window_clause(&self, node: Node<'a>) -> String {
+        let mut defs = Vec::new();
+        if let Some(list) = node.find_child("window_definition_list") {
+            for def in flatten_list(list, "window_definition_list") {
+                let name = def
+                    .find_child("ColId")
+                    .map(|n| self.format_expr(n))
+                    .unwrap_or_default();
+                let body = def
+                    .find_child("window_specification")
+                    .map(|s| self.format_window_spec_body(s))
+                    .unwrap_or_default();
+                defs.push(format!("{name} {} ({body})", self.kw("AS")));
+            }
+        }
+        defs.join(", ")
+    }
+
+    /// Format the items of a `for_locking_clause`, each returned as the text
+    /// after the leading `FOR` keyword (e.g. `UPDATE OF a SKIP LOCKED`).
+    fn format_for_locking_items(&self, node: Node<'a>) -> Vec<String> {
+        let mut result = Vec::new();
+        if let Some(items) = node.find_child("for_locking_items") {
+            for item in flatten_list(items, "for_locking_items") {
+                if item.kind() == "for_locking_item" {
+                    result.push(self.format_for_locking_item(item));
+                }
+            }
+        }
+        result
+    }
+
+    fn format_for_locking_item(&self, item: Node<'a>) -> String {
+        let mut parts = Vec::new();
+        for child in item.named_children_vec() {
+            match child.kind() {
+                "for_locking_strength" => {
+                    for k in child.named_children_vec() {
+                        match k.kind() {
+                            "kw_for" => {} // rendered as the leading keyword
+                            "kw_no" => parts.push(self.kw("NO")),
+                            "kw_key" => parts.push(self.kw("KEY")),
+                            "kw_update" => parts.push(self.kw("UPDATE")),
+                            "kw_share" => parts.push(self.kw("SHARE")),
+                            _ => {}
+                        }
+                    }
+                }
+                "locked_rels_list" => {
+                    parts.push(self.kw("OF"));
+                    if let Some(list) = child.find_child("qualified_name_list") {
+                        let names = flatten_list(list, "qualified_name_list");
+                        let formatted: Vec<_> =
+                            names.iter().map(|n| self.format_expr(*n)).collect();
+                        parts.push(formatted.join(", "));
+                    }
+                }
+                "opt_nowait_or_skip" => {
+                    if child.has_child("kw_nowait") {
+                        parts.push(self.kw("NOWAIT"));
+                    } else if child.has_child("kw_skip") {
+                        parts.push(self.kw("SKIP"));
+                        parts.push(self.kw("LOCKED"));
+                    }
+                }
+                _ => {}
+            }
+        }
+        parts.join(" ")
     }
 
     /// Split a WHERE/HAVING expression into individual conditions separated by AND/OR.
@@ -1142,6 +1286,15 @@ impl<'a> Formatter<'a> {
             self.format_having_left_aligned(having, &mut lines);
         }
 
+        // WINDOW.
+        if let Some(window) = clauses.window_clause {
+            if blank {
+                lines.push(String::new());
+            }
+            let content = self.format_window_clause(window);
+            lines.push(format!("{} {content}", self.kw("WINDOW")));
+        }
+
         // ORDER BY.
         if let Some(sort) = clauses.sort_clause {
             if blank {
@@ -1155,9 +1308,17 @@ impl<'a> Formatter<'a> {
             if blank {
                 lines.push(String::new());
             }
-            let value = self.extract_limit_value(limit);
-            if !value.is_empty() {
-                lines.push(format!("{} {value}", self.kw("LIMIT")));
+            // SQL-standard FETCH FIRST n ROWS ONLY form is preserved as-is.
+            if limit.has_child("kw_fetch") {
+                let content = self.format_fetch_first(limit);
+                if !content.is_empty() {
+                    lines.push(format!("{} {content}", self.kw("FETCH")));
+                }
+            } else {
+                let value = self.extract_limit_value(limit);
+                if !value.is_empty() {
+                    lines.push(format!("{} {value}", self.kw("LIMIT")));
+                }
             }
         }
 
@@ -1166,6 +1327,13 @@ impl<'a> Formatter<'a> {
             let value = self.extract_offset_value(offset);
             if !value.is_empty() {
                 lines.push(format!("{} {value}", self.kw("OFFSET")));
+            }
+        }
+
+        // FOR UPDATE / FOR SHARE locking.
+        if let Some(for_locking) = clauses.for_locking {
+            for content in self.format_for_locking_items(for_locking) {
+                lines.push(format!("{} {content}", self.kw("FOR")));
             }
         }
 
@@ -1204,41 +1372,29 @@ impl<'a> Formatter<'a> {
                 return;
             }
 
-            let has_multiple_non_join = tables
-                .iter()
-                .filter(|t| !(t.kind() == "table_ref" && t.has_child("joined_table")))
-                .count()
-                > 1;
-
-            // Check if any table has joins.
-            let first = tables[0];
-            if first.kind() == "table_ref" && first.has_child("joined_table") {
-                let jt = first.find_child("joined_table").unwrap();
-                self.format_joined_table_left_aligned(jt, lines, true);
-            } else {
-                let mut text = self.format_table_ref(first);
-                if has_multiple_non_join && tables.len() > 1 {
-                    text = format!("{text},");
-                }
-                if tables.len() == 1 && !first.has_child("joined_table") {
-                    lines.push(format!("{} {text}", self.kw("FROM")));
-                } else {
-                    lines.push(self.kw("FROM"));
-                    lines.push(format!("{indent}{text}"));
-                }
-            }
-
-            for (i, table) in tables[1..].iter().enumerate() {
+            let single = tables.len() == 1;
+            for (i, table) in tables.iter().enumerate() {
+                let is_last = i == tables.len() - 1;
                 if table.kind() == "table_ref" && table.has_child("joined_table") {
                     let jt = table.find_child("joined_table").unwrap();
-                    self.format_joined_table_left_aligned(jt, lines, false);
+                    self.format_joined_table_left_aligned(jt, lines, i == 0);
                 } else {
-                    let mut text = self.format_table_ref(*table);
-                    // Append comma if not the last non-join table.
-                    if has_multiple_non_join && i < tables.len() - 2 {
-                        text = format!("{text},");
+                    let text = self.format_table_ref(*table);
+                    if i == 0 {
+                        if single {
+                            lines.push(format!("{} {text}", self.kw("FROM")));
+                        } else {
+                            lines.push(self.kw("FROM"));
+                            lines.push(format!("{indent}{text}"));
+                        }
+                    } else {
+                        lines.push(format!("{indent}{text}"));
                     }
-                    lines.push(format!("{indent}{text}"));
+                }
+                // A comma separates each FROM item from the next, whether the
+                // items are plain tables or JOIN groups.
+                if !is_last && let Some(last) = lines.last_mut() {
+                    last.push(',');
                 }
             }
         }

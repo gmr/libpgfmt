@@ -1,0 +1,4 @@
+SELECT id,
+       ROW_NUMBER() OVER (w)
+  FROM events
+WINDOW w AS (PARTITION BY id ORDER BY id);
