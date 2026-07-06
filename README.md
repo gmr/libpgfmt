@@ -3,7 +3,7 @@
 A Rust library for formatting PostgreSQL SQL and PL/pgSQL, powered by
 [tree-sitter-postgres](https://github.com/gmr/tree-sitter-postgres).
 
-Supports 7 formatting styles based on popular SQL style guides:
+Supports 8 formatting styles based on popular SQL style guides:
 
 | Style               | Description                                        |
 | ------------------- | -------------------------------------------------- |
@@ -13,6 +13,7 @@ Supports 7 formatting styles based on popular SQL style guides:
 | [**kickstarter**](https://gist.github.com/fredbenenson/7bb92718e19138c20591) | 2-space indent, compact JOIN...ON on same line |
 | [**mattmc3**](https://gist.github.com/mattmc3/38a85e6a4ca1093816c08d4815fbebfb) | Lowercase river with leading commas |
 | [**mozilla**](https://docs.telemetry.mozilla.org/concepts/sql_style.html) | Keywords left-aligned, content indented 4 spaces |
+| **pg_dump** | Mimics PostgreSQL's `ruleutils.c` deparser output (`pg_get_viewdef`/`pg_get_functiondef`) for byte-identical round-tripping |
 | [**river**](https://www.sqlstyle.guide/) | Keywords right-aligned to form a visual "river" |
 
 ## Usage
