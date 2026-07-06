@@ -103,6 +103,19 @@ END;";
     assert_eq!(result, expected, "\nGot:\n{result}");
 }
 
+// Regression (#32): additional RAISE ... USING option keywords (DETAIL, HINT)
+// are preserved alongside ERRCODE.
+#[test]
+fn raise_using_detail_hint_options_preserved() {
+    let body = "BEGIN RAISE EXCEPTION 'bad' USING DETAIL = 'd', HINT = 'h', ERRCODE = '22000'; END";
+    let result = format_plpgsql(body, Style::Aweber).unwrap();
+    let expected = "\
+BEGIN
+  RAISE EXCEPTION 'bad' USING DETAIL = 'd', HINT = 'h', ERRCODE = '22000';
+END;";
+    assert_eq!(result, expected, "\nGot:\n{result}");
+}
+
 // Regression: format_plpgsql falls back to SQL formatting when the body is not
 // PL/pgSQL (e.g. a LANGUAGE sql function body), rather than erroring.
 #[test]

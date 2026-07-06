@@ -388,17 +388,7 @@ impl<'a> Formatter<'a> {
                         parts.push(self.kw("USING"));
                     }
                     "raise_option" => {
-                        let mut oc = child.walk();
-                        let mut opt_kw = String::new();
-                        let mut opt_expr = String::new();
-                        for c in child.named_children(&mut oc) {
-                            if c.kind().starts_with("kw_") {
-                                opt_kw = self.kw(self.text(c).trim());
-                            } else if c.kind() == "sql_expression" {
-                                opt_expr = self.text(c).trim().to_string();
-                            }
-                        }
-                        parts.push(format!("{opt_kw} = {opt_expr}"));
+                        parts.push(self.format_raise_option(child));
                     }
                     _ => {}
                 }
@@ -414,6 +404,21 @@ impl<'a> Formatter<'a> {
         }
 
         lines.push(format!("{indent}{};", parts.join(" ")));
+    }
+
+    // Formats a single `RAISE ... USING` option as `KEYWORD = expression`.
+    fn format_raise_option(&self, node: Node<'a>) -> String {
+        let mut cursor = node.walk();
+        let mut opt_kw = String::new();
+        let mut opt_expr = String::new();
+        for c in node.named_children(&mut cursor) {
+            if c.kind().starts_with("kw_") {
+                opt_kw = self.kw(self.text(c).trim());
+            } else if c.kind() == "sql_expression" {
+                opt_expr = self.text(c).trim().to_string();
+            }
+        }
+        format!("{opt_kw} = {opt_expr}")
     }
 
     fn format_exception_sect(&self, node: Node<'a>, indent_level: usize, lines: &mut Vec<String>) {
