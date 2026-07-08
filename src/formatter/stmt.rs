@@ -515,48 +515,12 @@ impl<'a> Formatter<'a> {
             .find_child("OptTableElementList")
             .and_then(|n| n.find_child("TableElementList"))
         {
-            let raw = flatten_list(elem_list, "TableElementList");
             let indent = self.config.indent;
 
-            // Comments parse as sibling nodes within the element list, and a
-            // comment after the last element parses as a direct child of the
-            // CreateStmt (between the element list and the closing paren).
-            // Associate each with the element it trails so it renders as an
-            // end-of-line comment instead of a bogus column.
-            let (group_leading, mut grouped) = self.group_table_elements(&raw);
-            let list_start = elem_list.start_byte();
-            // The element list is delimited by a closing paren that is a direct
-            // child of CreateStmt. Comments before it trail the last element;
-            // comments after it belong to later clauses (WITH, INHERITS, a
-            // partition spec, ...) and must not be folded into the column list.
-            let close_paren = {
-                let mut paren_cursor = node.walk();
-                node.children(&mut paren_cursor)
-                    .find(|c| c.kind() == ")")
-                    .map(|c| c.start_byte())
-                    .unwrap_or_else(|| node.end_byte())
-            };
-            // Comments that precede the list are kept ahead of comments inside
-            // the list so leading comments render in source order.
-            let mut before_list: Vec<String> = Vec::new();
-            let mut trailing_cursor = node.walk();
-            for child in node.named_children(&mut trailing_cursor) {
-                if child.kind() != "comment" {
-                    continue;
-                }
-                let text = self.text(child).trim_end().to_string();
-                if child.start_byte() < list_start {
-                    before_list.push(text);
-                } else if child.start_byte() < close_paren {
-                    match grouped.last_mut() {
-                        Some((_, comments)) => comments.push(text),
-                        None => before_list.push(text),
-                    }
-                }
-                // Comments after the closing paren belong to a later clause.
-            }
-            let mut leading_comments = before_list;
-            leading_comments.extend(group_leading);
+            // Comments interspersed with the columns/constraints are associated
+            // with the element they trail so they render as end-of-line
+            // comments instead of bogus columns.
+            let (leading_comments, grouped) = self.collect_table_elements(node, elem_list);
             for c in &leading_comments {
                 lines.push(format!("{indent}{c}"));
             }
@@ -780,6 +744,55 @@ impl<'a> Formatter<'a> {
                 grouped.push((e, Vec::new()));
             }
         }
+        (leading, grouped)
+    }
+
+    /// Collect the comments belonging to a table element list, shared by
+    /// CREATE TABLE and CREATE FOREIGN TABLE. Returns the leading comments
+    /// (rendered before the first element, in source order) and each element
+    /// paired with the trailing `-- ...` comments that follow it.
+    ///
+    /// Comments interspersed within the list parse as siblings of the
+    /// elements; a comment after the last element parses as a direct child of
+    /// the statement node, between the list and the closing paren. Comments
+    /// after the closing paren belong to later clauses (SERVER, OPTIONS, WITH,
+    /// INHERITS, a partition spec, ...) and are left for those to handle.
+    fn collect_table_elements(
+        &self,
+        node: Node<'a>,
+        elem_list: Node<'a>,
+    ) -> (Vec<String>, Vec<(Node<'a>, Vec<String>)>) {
+        let raw = flatten_list(elem_list, "TableElementList");
+        let (group_leading, mut grouped) = self.group_table_elements(&raw);
+        let list_start = elem_list.start_byte();
+        let close_paren = {
+            let mut paren_cursor = node.walk();
+            node.children(&mut paren_cursor)
+                .find(|c| c.kind() == ")")
+                .map(|c| c.start_byte())
+                .unwrap_or_else(|| node.end_byte())
+        };
+        // Comments that precede the list are kept ahead of comments inside the
+        // list so leading comments render in source order.
+        let mut before_list: Vec<String> = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() != "comment" {
+                continue;
+            }
+            let text = self.text(child).trim_end().to_string();
+            if child.start_byte() < list_start {
+                before_list.push(text);
+            } else if child.start_byte() < close_paren {
+                match grouped.last_mut() {
+                    Some((_, comments)) => comments.push(text),
+                    None => before_list.push(text),
+                }
+            }
+            // Comments after the closing paren belong to a later clause.
+        }
+        let mut leading = before_list;
+        leading.extend(group_leading);
         (leading, grouped)
     }
 
@@ -1263,20 +1276,27 @@ impl<'a> Formatter<'a> {
             .find_child("OptTableElementList")
             .and_then(|n| n.find_child("TableElementList"))
         {
-            let elements = flatten_list(elem_list, "TableElementList");
             let indent = self.config.indent;
+
+            // Inline comments trail the element they follow (see
+            // collect_table_elements); render them as end-of-line comments
+            // rather than treating them as bogus columns.
+            let (leading_comments, grouped) = self.collect_table_elements(node, elem_list);
+            for c in &leading_comments {
+                lines.push(format!("{indent}{c}"));
+            }
 
             if self.config.river {
                 // Classify all elements, keeping their original order.
-                let classified: Vec<_> = elements
+                let classified: Vec<_> = grouped
                     .iter()
-                    .map(|e| self.classify_table_element(*e))
+                    .map(|(e, comments)| (self.classify_table_element(*e), comments.clone()))
                     .collect();
 
                 // Compute column-alignment widths from Column elements only.
                 let max_name_len = classified
                     .iter()
-                    .filter_map(|e| {
+                    .filter_map(|(e, _)| {
                         if let TableElementKind::Column(n, _, _) = e {
                             Some(n.len())
                         } else {
@@ -1287,7 +1307,7 @@ impl<'a> Formatter<'a> {
                     .unwrap_or(0);
                 let max_type_len = classified
                     .iter()
-                    .filter_map(|e| {
+                    .filter_map(|(e, _)| {
                         if let TableElementKind::Column(_, t, _) = e {
                             Some(t.len())
                         } else {
@@ -1297,40 +1317,63 @@ impl<'a> Formatter<'a> {
                     .max()
                     .unwrap_or(0);
 
+                // Render each element to a single line (foreign-table
+                // constraints render inline), then align trailing comments.
                 let total = classified.len();
-                for (i, elem) in classified.iter().enumerate() {
+                let mut rendered: Vec<(String, Vec<String>)> = Vec::new();
+                for (i, (elem, comments)) in classified.iter().enumerate() {
                     let comma = if i < total - 1 { "," } else { "" };
-                    match elem {
+                    let text = match elem {
                         TableElementKind::Column(name, typename, constraints) => {
-                            let item = render_aligned_column(
+                            render_aligned_column(
                                 name,
                                 typename,
                                 constraints,
                                 max_name_len,
                                 max_type_len,
-                            );
-                            lines.push(format!("{indent}{item}{comma}"));
+                            )
+                        }
+                        TableElementKind::Constraint(Some(name), body) => {
+                            format!("{} {name} {body}", self.kw("CONSTRAINT"))
                         }
                         TableElementKind::PrimaryKey(text)
-                        | TableElementKind::Constraint(_, text) => {
-                            let text = match elem {
-                                TableElementKind::Constraint(Some(name), body) => {
-                                    format!("{} {name} {body}", self.kw("CONSTRAINT"))
-                                }
-                                _ => text.clone(),
-                            };
-                            lines.push(format!("{indent}{text}{comma}"));
+                        | TableElementKind::Constraint(None, text) => text.clone(),
+                    };
+                    rendered.push((format!("{indent}{text}{comma}"), comments.clone()));
+                }
+
+                let comment_col = rendered
+                    .iter()
+                    .filter(|(_, c)| !c.is_empty())
+                    .map(|(line, _)| line.len())
+                    .max()
+                    .unwrap_or(0);
+                for (line, comments) in &rendered {
+                    if let Some((first, rest)) = comments.split_first() {
+                        let pad = " ".repeat(comment_col.saturating_sub(line.len()));
+                        lines.push(format!("{line}{pad} {first}"));
+                        for extra in rest {
+                            lines.push(format!("{indent}{extra}"));
                         }
+                    } else {
+                        lines.push(line.clone());
                     }
                 }
             } else {
-                let formatted: Vec<_> = elements
-                    .iter()
-                    .map(|e| self.format_table_element(*e))
-                    .collect();
-                for (i, elem) in formatted.iter().enumerate() {
-                    let comma = if i < formatted.len() - 1 { "," } else { "" };
-                    lines.push(format!("{indent}{elem}{comma}"));
+                let total = grouped.len();
+                for (i, (elem_node, comments)) in grouped.iter().enumerate() {
+                    let elem = self.format_table_element(*elem_node);
+                    let comma = if i < total - 1 { "," } else { "" };
+                    let mut line = format!("{indent}{elem}{comma}");
+                    if let Some((first, rest)) = comments.split_first() {
+                        line.push_str(&format!(" {first}"));
+                        lines.push(line);
+                        for extra in rest {
+                            lines.push(format!("{indent}{extra}"));
+                        }
+                    } else {
+                        lines.push(line);
+                    }
                 }
             }
         }

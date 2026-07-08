@@ -1,0 +1,10 @@
+CREATE FOREIGN TABLE films (
+    code CHAR(5) NOT NULL, -- primary identifier
+    title VARCHAR(40) NOT NULL, -- film title
+    did INTEGER NOT NULL --director id
+)
+SERVER film_server
+OPTIONS (
+    schema_name 'public',
+    table_name 'films'
+);

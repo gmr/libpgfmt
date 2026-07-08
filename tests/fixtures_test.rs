@@ -156,6 +156,21 @@ fn river_create_table_comment_boundaries() {
     run_fixture(Style::River, "create_table_comment_boundaries");
 }
 
+#[test]
+fn river_create_foreign_table() {
+    run_fixture(Style::River, "create_foreign_table");
+}
+
+#[test]
+fn river_create_foreign_table_column_options() {
+    run_fixture(Style::River, "create_foreign_table_column_options");
+}
+
+#[test]
+fn river_create_foreign_table_inline_comments() {
+    run_fixture(Style::River, "create_foreign_table_inline_comments");
+}
+
 // ── Mozilla fixtures ────────────────────────────────────────────────────
 
 #[test]
@@ -221,6 +236,11 @@ fn mozilla_create_table_inline_comments() {
 #[test]
 fn mozilla_create_table_comment_boundaries() {
     run_fixture(Style::Mozilla, "create_table_comment_boundaries");
+}
+
+#[test]
+fn mozilla_create_foreign_table_inline_comments() {
+    run_fixture(Style::Mozilla, "create_foreign_table_inline_comments");
 }
 
 #[test]
