@@ -1,0 +1,7 @@
+CREATE TABLE widgets (
+    -- table of widgets
+    -- primary identifier
+    id INTEGER PRIMARY KEY,
+    name TEXT -- last column comment
+)
+WITH (fillfactor = 70);

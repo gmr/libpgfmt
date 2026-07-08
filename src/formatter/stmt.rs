@@ -523,22 +523,40 @@ impl<'a> Formatter<'a> {
             // CreateStmt (between the element list and the closing paren).
             // Associate each with the element it trails so it renders as an
             // end-of-line comment instead of a bogus column.
-            let (mut leading_comments, mut grouped) = self.group_table_elements(&raw);
+            let (group_leading, mut grouped) = self.group_table_elements(&raw);
             let list_start = elem_list.start_byte();
+            // The element list is delimited by a closing paren that is a direct
+            // child of CreateStmt. Comments before it trail the last element;
+            // comments after it belong to later clauses (WITH, INHERITS, a
+            // partition spec, ...) and must not be folded into the column list.
+            let close_paren = {
+                let mut paren_cursor = node.walk();
+                node.children(&mut paren_cursor)
+                    .find(|c| c.kind() == ")")
+                    .map(|c| c.start_byte())
+                    .unwrap_or_else(|| node.end_byte())
+            };
+            // Comments that precede the list are kept ahead of comments inside
+            // the list so leading comments render in source order.
+            let mut before_list: Vec<String> = Vec::new();
             let mut trailing_cursor = node.walk();
             for child in node.named_children(&mut trailing_cursor) {
-                if child.kind() == "comment" {
-                    let text = self.text(child).trim_end().to_string();
-                    if child.start_byte() < list_start {
-                        leading_comments.push(text);
-                    } else {
-                        match grouped.last_mut() {
-                            Some((_, comments)) => comments.push(text),
-                            None => leading_comments.push(text),
-                        }
+                if child.kind() != "comment" {
+                    continue;
+                }
+                let text = self.text(child).trim_end().to_string();
+                if child.start_byte() < list_start {
+                    before_list.push(text);
+                } else if child.start_byte() < close_paren {
+                    match grouped.last_mut() {
+                        Some((_, comments)) => comments.push(text),
+                        None => before_list.push(text),
                     }
                 }
+                // Comments after the closing paren belong to a later clause.
             }
+            let mut leading_comments = before_list;
+            leading_comments.extend(group_leading);
             for c in &leading_comments {
                 lines.push(format!("{indent}{c}"));
             }
