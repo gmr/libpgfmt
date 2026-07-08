@@ -146,6 +146,16 @@ fn river_create_table() {
     run_fixture(Style::River, "create_table");
 }
 
+#[test]
+fn river_create_table_inline_comments() {
+    run_fixture(Style::River, "create_table_inline_comments");
+}
+
+#[test]
+fn river_create_table_comment_boundaries() {
+    run_fixture(Style::River, "create_table_comment_boundaries");
+}
+
 // ── Mozilla fixtures ────────────────────────────────────────────────────
 
 #[test]
@@ -201,6 +211,16 @@ fn mozilla_delete_and() {
 #[test]
 fn mozilla_create_table() {
     run_fixture(Style::Mozilla, "create_table");
+}
+
+#[test]
+fn mozilla_create_table_inline_comments() {
+    run_fixture(Style::Mozilla, "create_table_inline_comments");
+}
+
+#[test]
+fn mozilla_create_table_comment_boundaries() {
+    run_fixture(Style::Mozilla, "create_table_comment_boundaries");
 }
 
 #[test]
