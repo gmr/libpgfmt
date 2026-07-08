@@ -639,21 +639,7 @@ impl<'a> Formatter<'a> {
                     }
                 }
             } else {
-                let total = grouped.len();
-                for (i, (elem_node, comments)) in grouped.iter().enumerate() {
-                    let elem = self.format_table_element(*elem_node);
-                    let comma = if i < total - 1 { "," } else { "" };
-                    let mut line = format!("{indent}{elem}{comma}");
-                    if let Some((first, rest)) = comments.split_first() {
-                        line.push_str(&format!(" {first}"));
-                        lines.push(line);
-                        for extra in rest {
-                            lines.push(format!("{indent}{extra}"));
-                        }
-                    } else {
-                        lines.push(line);
-                    }
-                }
+                lines.extend(self.render_grouped_elements_left_aligned(&grouped, indent));
             }
         }
 
@@ -794,6 +780,32 @@ impl<'a> Formatter<'a> {
         let mut leading = before_list;
         leading.extend(group_leading);
         (leading, grouped)
+    }
+
+    /// Render grouped table elements in left-aligned (non-river) style,
+    /// appending trailing commas and attached comments. Shared by
+    /// `format_create_table_stmt` and `format_create_foreign_table_stmt`.
+    fn render_grouped_elements_left_aligned(
+        &self,
+        grouped: &[(Node<'a>, Vec<String>)],
+        indent: &str,
+    ) -> Vec<String> {
+        let mut lines = Vec::new();
+        let total = grouped.len();
+        for (i, (elem_node, comments)) in grouped.iter().enumerate() {
+            let elem = self.format_table_element(*elem_node);
+            let comma = if i < total - 1 { "," } else { "" };
+            let line = format!("{indent}{elem}{comma}");
+            if let Some((first, rest)) = comments.split_first() {
+                lines.push(format!("{line} {first}"));
+                for extra in rest {
+                    lines.push(format!("{indent}{extra}"));
+                }
+            } else {
+                lines.push(line);
+            }
+        }
+        lines
     }
 
     /// Classify a table element for river-style CREATE TABLE formatting.
@@ -1360,21 +1372,7 @@ impl<'a> Formatter<'a> {
                     }
                 }
             } else {
-                let total = grouped.len();
-                for (i, (elem_node, comments)) in grouped.iter().enumerate() {
-                    let elem = self.format_table_element(*elem_node);
-                    let comma = if i < total - 1 { "," } else { "" };
-                    let mut line = format!("{indent}{elem}{comma}");
-                    if let Some((first, rest)) = comments.split_first() {
-                        line.push_str(&format!(" {first}"));
-                        lines.push(line);
-                        for extra in rest {
-                            lines.push(format!("{indent}{extra}"));
-                        }
-                    } else {
-                        lines.push(line);
-                    }
-                }
+                lines.extend(self.render_grouped_elements_left_aligned(&grouped, indent));
             }
         }
 
