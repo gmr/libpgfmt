@@ -50,6 +50,10 @@ impl<'a> Formatter<'a> {
         match inner.kind() {
             "SelectStmt" => Ok(format!("{};", self.pgdump_select(inner, 0))),
             "CreateFunctionStmt" => Ok(self.pgdump_create_function(inner)),
+            // pg_dump emits pg_get_propgraphdef's layout (one element per line)
+            // terminated with a semicolon, like any dumped statement.
+            "CreatePropGraphStmt" => Ok(format!("{};", self.format_create_prop_graph_stmt(inner))),
+            "AlterPropGraphStmt" => Ok(format!("{};", self.format_alter_prop_graph_stmt(inner))),
             // Out of scope: reproduce verbatim so deparser output still
             // round-trips and nothing is mangled.
             _ => Ok(self.text(inner).trim().to_string()),

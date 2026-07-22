@@ -1,0 +1,29 @@
+# Throwaway PostgreSQL cluster for regenerating the Style::PgDump fixtures.
+#
+# Loads tests/fixtures/pg_dump/schema.sql on first boot, then generate.sh
+# captures the deparser output. Data lives in tmpfs, so `docker compose down`
+# leaves nothing behind. Nothing global on the host is touched.
+#
+#   docker compose up -d --wait     # or: just gen-pgdump-fixtures
+#
+# Pinned to 19beta2 to match the tree-sitter-postgres 19.0b2 grammar and to
+# capture deparser output for PostgreSQL 19 features; a different major version
+# may deparse these objects differently.
+services:
+  postgres:
+    image: postgres:19beta2
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:5599:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    volumes:
+      - ./tests/fixtures/pg_dump/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
