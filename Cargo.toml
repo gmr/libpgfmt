@@ -11,7 +11,7 @@ categories = ["text-processing", "development-tools"]
 
 [dependencies]
 tree-sitter = "0.26"
-tree-sitter-postgres = "19.0.0-beta.2"
+tree-sitter-postgres = "=19.0.0-beta.2"
 
 [dev-dependencies]
 pretty_assertions = "1"
