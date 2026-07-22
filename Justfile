@@ -59,7 +59,7 @@ publish-dry:
 publish:
     cargo publish
 
-# Regenerate Style::PgDump fixtures from a throwaway PostgreSQL cluster
+# Regenerate Style::PgDump fixtures from a throwaway PostgreSQL container (needs Docker)
 gen-pgdump-fixtures:
     bash tests/fixtures/pg_dump/generate.sh
 

@@ -1,0 +1,122 @@
+-- Scaffolding schema for the Style::PgDump idempotency round-trip.
+--
+-- Loaded two ways, both producing the same objects:
+--   * as a Postgres init script (mounted into /docker-entrypoint-initdb.d by
+--     compose.yaml), and
+--   * by generate.sh, which then captures pg_get_viewdef / pg_get_functiondef
+--     output into the view_*.sql / func_*.sql fixtures beside this file.
+--
+-- The captured deparser output is the actual test input; this file only exists
+-- to produce it. Keep the object set representative of real-world SQL shapes.
+
+CREATE SCHEMA app;
+CREATE TABLE app.users (id bigint PRIMARY KEY, email text NOT NULL, country text, created_at timestamptz, active boolean DEFAULT true);
+CREATE TABLE app.orders (id bigint PRIMARY KEY, user_id bigint, total numeric(10,2), placed_at timestamptz);
+
+CREATE VIEW app.us_users AS
+  SELECT id, email, created_at AT TIME ZONE 'UTC' AS created_utc
+  FROM app.users WHERE country = 'US' AND active;
+
+CREATE VIEW app.order_totals AS
+  SELECT u.email, count(*) AS n, sum(o.total) AS revenue
+  FROM app.users u JOIN app.orders o ON o.user_id = u.id
+  WHERE o.placed_at > now() - interval '30 days'
+  GROUP BY u.email HAVING sum(o.total) > 100 ORDER BY revenue DESC;
+
+CREATE VIEW app.win AS
+  SELECT email, row_number() OVER (PARTITION BY country ORDER BY created_at) AS rn FROM app.users;
+
+CREATE VIEW app.uni AS
+  SELECT id FROM app.users UNION SELECT user_id FROM app.orders;
+
+-- Nested shapes: CTEs, CASE blocks, comma-separated FROM.
+CREATE VIEW app.recent_cte AS
+  WITH recent AS (SELECT user_id, total FROM app.orders WHERE placed_at > now() - interval '7 days')
+  SELECT user_id, sum(total) AS wk FROM recent GROUP BY user_id;
+CREATE VIEW app.two_cte AS
+  WITH x AS (SELECT id AS a FROM app.users), y AS (SELECT id AS b FROM app.orders)
+  SELECT x.a, y.b FROM x, y;
+CREATE VIEW app.distinct_case AS
+  SELECT DISTINCT country, CASE WHEN active THEN 'on' ELSE 'off' END AS st FROM app.users;
+CREATE VIEW app.case_plain AS
+  SELECT id, CASE WHEN active THEN 'on' ELSE 'off' END AS st FROM app.users;
+CREATE VIEW app.case_first AS
+  SELECT CASE WHEN active THEN 1 ELSE 0 END AS x, id FROM app.users;
+
+-- Subqueries embedded in expressions (IN, EXISTS, scalar in target list).
+CREATE VIEW app.sub AS
+  SELECT u.email FROM app.users u WHERE u.id IN (SELECT user_id FROM app.orders);
+CREATE VIEW app.sub_exists AS
+  SELECT u.email FROM app.users u
+  WHERE EXISTS (SELECT 1 FROM app.orders o WHERE o.user_id = u.id);
+CREATE VIEW app.sub_scalar AS
+  SELECT u.email, (SELECT count(*) FROM app.orders o WHERE o.user_id = u.id) AS n FROM app.users u;
+
+-- LIMIT / OFFSET, derived tables in FROM, set-op with trailing ORDER BY/LIMIT.
+CREATE VIEW app.lim AS
+  SELECT id FROM app.users ORDER BY id LIMIT 10 OFFSET 5;
+CREATE VIEW app.derived AS
+  SELECT s.email FROM (SELECT email FROM app.users WHERE active) s;
+CREATE VIEW app.derived_join AS
+  SELECT u.email, t.n FROM app.users u
+  JOIN (SELECT user_id, count(*) AS n FROM app.orders GROUP BY user_id) t ON t.user_id = u.id;
+CREATE VIEW app.union_order AS
+  SELECT id FROM app.users UNION SELECT user_id FROM app.orders ORDER BY 1 LIMIT 3;
+
+-- Deeper / varied real-world shapes (validation sweep).
+CREATE VIEW app.nested_sub AS
+  SELECT id, email FROM app.users u1
+  WHERE EXISTS (SELECT 1 FROM app.orders o
+                WHERE o.user_id = u1.id AND o.total > (SELECT avg(total) FROM app.orders));
+CREATE VIEW app.lateral AS
+  SELECT t.uid, t.s FROM app.users u,
+  LATERAL (SELECT u.id AS uid, sum(total) AS s FROM app.orders o WHERE o.user_id = u.id GROUP BY u.id) t;
+CREATE VIEW app.window_frame AS
+  SELECT id, sum(total) OVER (PARTITION BY user_id ORDER BY placed_at
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS run FROM app.orders;
+CREATE VIEW app.distinct_on AS
+  SELECT DISTINCT ON (country) country, id FROM app.users ORDER BY country, id;
+CREATE VIEW app.filter_agg AS
+  SELECT count(*) FILTER (WHERE active) AS act, count(*) AS cnt FROM app.users;
+
+CREATE FUNCTION app.add(a integer, b integer) RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT a + b $$;
+CREATE FUNCTION app.bump(p_id bigint) RETURNS void LANGUAGE plpgsql AS $fn$
+BEGIN
+  UPDATE app.users SET active = true WHERE id = p_id;
+END;
+$fn$;
+-- Function variety: DEFAULT args, OUT params, VARIADIC, RETURNS TABLE/SETOF,
+-- grouped behavior attributes, SET, SQL-standard RETURN body.
+CREATE FUNCTION app.fn_default(a integer, b integer DEFAULT 0) RETURNS integer LANGUAGE sql AS $$ SELECT a + b $$;
+CREATE FUNCTION app.fn_out(IN a integer, OUT q integer, OUT r integer) LANGUAGE sql AS $$ SELECT a / 2, a % 2 $$;
+CREATE FUNCTION app.fn_variadic(VARIADIC arr integer[]) RETURNS integer LANGUAGE sql AS $$ SELECT array_length(arr, 1) $$;
+CREATE FUNCTION app.fn_table(x integer) RETURNS TABLE(a integer, b text) LANGUAGE sql AS $$ SELECT x, 'y'::text $$;
+CREATE FUNCTION app.fn_setof(x integer) RETURNS SETOF integer LANGUAGE sql AS $$ SELECT generate_series(1, x) $$;
+CREATE FUNCTION app.fn_behavior(x integer) RETURNS integer LANGUAGE sql STRICT IMMUTABLE PARALLEL SAFE AS $$ SELECT x $$;
+CREATE FUNCTION app.fn_set(x integer) RETURNS integer LANGUAGE sql SET search_path TO 'public' AS $$ SELECT x $$;
+CREATE FUNCTION app.fn_return(x integer) RETURNS integer LANGUAGE sql RETURN x + 1;
+
+-- PostgreSQL 19 features.
+--
+-- SQL/PGQ property graphs (pg_get_propgraphdef): a vertex-only graph and a
+-- full graph with labels, an aliased edge, and SOURCE/DESTINATION references.
+CREATE PROPERTY GRAPH app.graph_min
+  VERTEX TABLES (app.users);
+CREATE PROPERTY GRAPH app.graph_shop
+  VERTEX TABLES (
+    app.users KEY (id) LABEL customer,
+    app.orders KEY (id) LABEL purchase
+  )
+  EDGE TABLES (
+    app.orders AS made KEY (id)
+      SOURCE KEY (user_id) REFERENCES users (id)
+      DESTINATION KEY (id) REFERENCES orders (id)
+      LABEL placed
+  );
+
+-- Window null treatment (IGNORE NULLS) and ordered-set aggregate (WITHIN GROUP)
+-- captured via a view, exercising the aggregate-clause formatting path.
+CREATE VIEW app.nulls_win AS
+  SELECT id, lag(email) IGNORE NULLS OVER (ORDER BY id) AS prev_email FROM app.users;
+CREATE VIEW app.within_group AS
+  SELECT country, percentile_cont(0.5) WITHIN GROUP (ORDER BY id) AS med FROM app.users GROUP BY country;

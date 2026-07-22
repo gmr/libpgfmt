@@ -22,6 +22,9 @@ fn pgdump_fixtures_are_idempotent() {
         .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|e| e == "sql"))
+        // schema.sql is the input scaffolding that produces these fixtures, not
+        // deparser output — it is not expected to be idempotent.
+        .filter(|p| p.file_name().is_some_and(|n| n != "schema.sql"))
         .collect();
     entries.sort();
 

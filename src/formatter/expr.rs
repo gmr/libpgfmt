@@ -644,6 +644,20 @@ impl<'a> Formatter<'a> {
             "func_expr" => {
                 if let Some(app) = node.find_child("func_application") {
                     let mut result = self.format_func(app);
+                    // Trailing clauses appear in grammar order:
+                    // WITHIN GROUP, FILTER, RESPECT/IGNORE NULLS (PG19), OVER.
+                    if let Some(wg) = node.find_child("within_group_clause") {
+                        result.push(' ');
+                        result.push_str(&self.format_within_group_clause(wg));
+                    }
+                    if let Some(filter) = node.find_child("filter_clause") {
+                        result.push(' ');
+                        result.push_str(&self.format_filter_clause(filter));
+                    }
+                    if let Some(nt) = node.find_child("null_treatment") {
+                        result.push(' ');
+                        result.push_str(&self.format_null_treatment(nt));
+                    }
                     // Check for OVER clause at the func_expr level
                     // (window functions like RANK() OVER (...)).
                     if let Some(over) = node.find_child("over_clause") {
@@ -824,6 +838,35 @@ impl<'a> Formatter<'a> {
             }
         }
         parts.join("")
+    }
+
+    /// Format a `WITHIN GROUP (ORDER BY ...)` clause on an ordered-set or
+    /// hypothetical-set aggregate (e.g. `percentile_cont`).
+    fn format_within_group_clause(&self, node: Node<'a>) -> String {
+        let order = node
+            .find_child("sort_clause")
+            .map(|sc| self.format_sort_clause_inline(sc))
+            .unwrap_or_default();
+        format!("{} ({order})", self.kw_pair("WITHIN", "GROUP"))
+    }
+
+    /// Format a `FILTER (WHERE <condition>)` aggregate filter clause.
+    fn format_filter_clause(&self, node: Node<'a>) -> String {
+        let cond = node
+            .find_child_any(&["a_expr", "c_expr"])
+            .map(|e| self.format_expr(e))
+            .unwrap_or_default();
+        format!("{} ({} {cond})", self.kw("FILTER"), self.kw("WHERE"))
+    }
+
+    /// Format a `null_treatment` node: `RESPECT NULLS` or `IGNORE NULLS` (PG19).
+    fn format_null_treatment(&self, node: Node<'a>) -> String {
+        let leading = if node.has_child("kw_ignore") {
+            self.kw("IGNORE")
+        } else {
+            self.kw("RESPECT")
+        };
+        format!("{leading} {}", self.kw("NULLS"))
     }
 
     fn format_over_clause(&self, node: Node<'a>) -> String {
@@ -1424,8 +1467,405 @@ impl<'a> Formatter<'a> {
         self.text(node).to_string()
     }
 
+    // ── GRAPH_TABLE (SQL/PGQ property graphs, PG19) ──────────────────────
+    //
+    // `GRAPH_TABLE (graph MATCH <pattern> COLUMNS (<exprs>)) [AS alias]`.
+    // The graph pattern is a contiguous token stream (`(a)-[e]->(b)`) whose
+    // vertex/edge elements concatenate without separators, while the contents
+    // inside each `(...)`/`[...]` are space-separated. Rendered inline.
+
+    fn format_graph_table(&self, node: Node<'a>) -> String {
+        let mut graph_name = String::new();
+        let mut pattern = String::new();
+        let mut columns = String::new();
+        let mut alias = String::new();
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            match child.kind() {
+                "qualified_name" => graph_name = self.format_expr(child),
+                "graph_pattern" => pattern = self.format_graph_pattern(child),
+                "labeled_expr_list" => columns = self.format_labeled_expr_list(child),
+                "opt_alias_clause" | "alias_clause" => alias = self.format_alias(child),
+                _ => {}
+            }
+        }
+        // Indented block: the graph name, MATCH and COLUMNS each get their own
+        // line one indent level in; the closing paren de-dents to the
+        // `GRAPH_TABLE` column. Inner lines are indented relative to column 0
+        // so the FROM layout (river_line / left-aligned) can re-anchor them.
+        let indent = self.config.indent;
+        let close = if alias.is_empty() {
+            ")".to_string()
+        } else {
+            format!(") {alias}")
+        };
+        format!(
+            "{gt} (\n{indent}{graph_name}\n{indent}{match_kw} {pattern}\n{indent}{cols_kw} ({columns})\n{close}",
+            gt = self.kw("GRAPH_TABLE"),
+            match_kw = self.kw("MATCH"),
+            cols_kw = self.kw("COLUMNS"),
+        )
+    }
+
+    fn format_graph_pattern(&self, node: Node<'a>) -> String {
+        let mut parts = Vec::new();
+        if let Some(list) = node.find_child("path_pattern_list") {
+            let items = flatten_list(list, "path_pattern_list");
+            let formatted: Vec<_> = items.iter().map(|i| self.render_path(*i)).collect();
+            parts.push(formatted.join(", "));
+        }
+        if let Some(wc) = node.find_child("where_clause") {
+            parts.push(self.format_graph_where(wc));
+        }
+        parts.join(" ")
+    }
+
+    /// Render a path element node, concatenating vertices, edges, and
+    /// quantifiers without separators (e.g. `(a)-[e]->(b){2}`).
+    fn render_path(&self, node: Node<'a>) -> String {
+        match node.kind() {
+            "path_primary" => self.format_path_primary(node),
+            "opt_graph_pattern_quantifier" => {
+                let mut cursor = node.walk();
+                node.children(&mut cursor).map(|c| self.text(c)).collect()
+            }
+            // path_pattern / path_pattern_expression / path_term / path_factor
+            // are structural wrappers whose children concatenate directly.
+            _ => {
+                let mut cursor = node.walk();
+                node.named_children(&mut cursor)
+                    .map(|c| self.render_path(c))
+                    .collect()
+            }
+        }
+    }
+
+    fn format_path_primary(&self, node: Node<'a>) -> String {
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        let named: Vec<usize> = children
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.is_named())
+            .map(|(i, _)| i)
+            .collect();
+        // Bare connectors like `->`, `-`, `<-` have no named children.
+        if named.is_empty() {
+            return children.iter().map(|c| self.text(*c)).collect();
+        }
+        let first = named[0];
+        let last = *named.last().unwrap();
+        // Delimiters/arrows around the content glue directly (`-[`, `]->`, `(`).
+        let prefix: String = children[..first].iter().map(|c| self.text(*c)).collect();
+        let suffix: String = children[last + 1..].iter().map(|c| self.text(*c)).collect();
+        let inner: Vec<String> = named
+            .iter()
+            .map(|&i| self.render_path_inner(children[i]))
+            .collect();
+        format!("{prefix}{}{suffix}", inner.join(" "))
+    }
+
+    /// Render the space-separated contents inside a vertex/edge pattern:
+    /// an element variable, an `IS <label>` test, and/or a `WHERE <cond>`.
+    fn render_path_inner(&self, node: Node<'a>) -> String {
+        match node.kind() {
+            "opt_colid" => node
+                .find_child("ColId")
+                .map(|c| self.text(c).to_string())
+                .unwrap_or_default(),
+            "opt_is_label_expression" => {
+                let label = node
+                    .find_child("label_expression")
+                    .map(|l| self.format_label_expression(l))
+                    .unwrap_or_default();
+                format!("{} {label}", self.kw("IS"))
+            }
+            "where_clause" => self.format_graph_where(node),
+            "path_pattern_expression" => self.render_path(node),
+            _ => self.text(node).to_string(),
+        }
+    }
+
+    fn format_label_expression(&self, node: Node<'a>) -> String {
+        match node.kind() {
+            // `A | B` label alternation.
+            "label_disjunction" => {
+                let mut cursor = node.walk();
+                let parts: Vec<_> = node
+                    .named_children(&mut cursor)
+                    .map(|c| self.format_label_expression(c))
+                    .collect();
+                parts.join(" | ")
+            }
+            "label_term" => self.text(node).to_string(),
+            // `label_expression` wraps a single label_term or label_disjunction.
+            _ => {
+                let mut cursor = node.walk();
+                match node.named_children(&mut cursor).next() {
+                    Some(child) => self.format_label_expression(child),
+                    None => self.text(node).to_string(),
+                }
+            }
+        }
+    }
+
+    fn format_graph_where(&self, node: Node<'a>) -> String {
+        let cond = node
+            .find_child_any(&["a_expr", "c_expr"])
+            .map(|e| self.format_expr(e))
+            .unwrap_or_default();
+        format!("{} {cond}", self.kw("WHERE"))
+    }
+
+    pub(crate) fn format_labeled_expr_list(&self, node: Node<'a>) -> String {
+        let items = flatten_list(node, "labeled_expr_list");
+        let formatted: Vec<_> = items.iter().map(|i| self.format_labeled_expr(*i)).collect();
+        formatted.join(", ")
+    }
+
+    fn format_labeled_expr(&self, node: Node<'a>) -> String {
+        let expr = node
+            .find_child_any(&["a_expr", "c_expr"])
+            .map(|e| self.format_expr(e))
+            .unwrap_or_default();
+        if let Some(label) = node.find_child("ColLabel") {
+            format!("{expr} {} {}", self.kw("AS"), self.text(label))
+        } else {
+            expr
+        }
+    }
+
+    // ── CREATE PROPERTY GRAPH (SQL/PGQ, PG19) ────────────────────────────
+
+    /// Format a `CREATE PROPERTY GRAPH` statement with its VERTEX/EDGE TABLES
+    /// clauses laid out one element definition per line, like CREATE TABLE.
+    pub(crate) fn format_create_prop_graph_stmt(&self, node: Node<'a>) -> String {
+        let name = node
+            .find_child("qualified_name")
+            .map(|n| self.format_expr(n))
+            .unwrap_or_default();
+        let mut header = self.kw("CREATE");
+        if let Some(temp) = node.find_child("OptTemp") {
+            header.push(' ');
+            header.push_str(&self.render_graph_inline(temp));
+        }
+        header.push_str(&format!(
+            " {} {} {name}",
+            self.kw("PROPERTY"),
+            self.kw("GRAPH")
+        ));
+        let mut lines = vec![header];
+        for (clause, synonym, list) in [
+            (
+                "opt_vertex_tables_clause",
+                "vertex_synonym",
+                "vertex_table_list",
+            ),
+            ("opt_edge_tables_clause", "edge_synonym", "edge_table_list"),
+        ] {
+            if let Some(inner) = node
+                .find_child(clause)
+                .and_then(|c| c.find_child_any(&["vertex_tables_clause", "edge_tables_clause"]))
+            {
+                self.format_graph_tables_clause(inner, synonym, list, "", &mut lines);
+            }
+        }
+        lines.join("\n")
+    }
+
+    pub(crate) fn format_alter_prop_graph_stmt(&self, node: Node<'a>) -> String {
+        let name = node
+            .find_child("qualified_name")
+            .map(|n| self.format_expr(n))
+            .unwrap_or_default();
+        // Only the `ADD ... TABLES` forms carry vertex/edge table clauses; give
+        // those the same structured block layout as CREATE. The other forms
+        // (DROP TABLES, ALTER ... TABLE ... {ADD,DROP,ALTER} LABEL/PROPERTIES)
+        // are short and render on one line via the keyword-casing walker.
+        let has_tables =
+            node.has_child("vertex_tables_clause") || node.has_child("edge_tables_clause");
+        if !has_tables {
+            return self.render_graph_inline(node);
+        }
+        let add = format!("{} ", self.kw("ADD"));
+        let mut lines = vec![format!(
+            "{} {} {} {name}",
+            self.kw("ALTER"),
+            self.kw("PROPERTY"),
+            self.kw("GRAPH")
+        )];
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            match child.kind() {
+                "vertex_tables_clause" => self.format_graph_tables_clause(
+                    child,
+                    "vertex_synonym",
+                    "vertex_table_list",
+                    &add,
+                    &mut lines,
+                ),
+                "edge_tables_clause" => self.format_graph_tables_clause(
+                    child,
+                    "edge_synonym",
+                    "edge_table_list",
+                    &add,
+                    &mut lines,
+                ),
+                _ => {}
+            }
+        }
+        lines.join("\n")
+    }
+
+    fn format_graph_tables_clause(
+        &self,
+        clause: Node<'a>,
+        synonym_kind: &str,
+        list_kind: &str,
+        lead: &str,
+        lines: &mut Vec<String>,
+    ) {
+        let indent = self.config.indent;
+        let synonym = clause
+            .find_child(synonym_kind)
+            .map(|s| self.kw(self.text(s)))
+            .unwrap_or_default();
+        lines.push(format!("{indent}{lead}{synonym} {} (", self.kw("TABLES")));
+        if let Some(list) = clause.find_child(list_kind) {
+            let defs = flatten_list(list, list_kind);
+            if self.config.river {
+                self.graph_defs_aligned(&defs, lines);
+            } else {
+                // pg_dump and the other left-aligned styles put each element on
+                // one line. pg_dump's 4-space indent yields the 8-space element
+                // indent that pg_get_propgraphdef emits, so this is idempotent.
+                self.graph_defs_simple(&defs, lines);
+            }
+        }
+        lines.push(format!("{indent})"));
+    }
+
+    /// One element per line, no column alignment (non-river left-aligned styles).
+    fn graph_defs_simple(&self, defs: &[Node<'a>], lines: &mut Vec<String>) {
+        let elem = self.config.indent.repeat(2);
+        let last = defs.len().saturating_sub(1);
+        for (i, def) in defs.iter().enumerate() {
+            let comma = if i < last { "," } else { "" };
+            lines.push(format!("{elem}{}{comma}", self.render_graph_inline(*def)));
+        }
+    }
+
+    /// River-family layout: one element per line with each field
+    /// (name, KEY, SOURCE, DESTINATION, LABEL/PROPERTIES) padded into an
+    /// aligned column, like the CREATE TABLE column/type/constraint alignment.
+    fn graph_defs_aligned(&self, defs: &[Node<'a>], lines: &mut Vec<String>) {
+        let elem = self.config.indent.repeat(2);
+        let rows: Vec<[String; 5]> = defs.iter().map(|d| self.graph_element_cells(*d)).collect();
+        // Column widths over the fields present in at least one element.
+        let mut widths = [0usize; 5];
+        for row in &rows {
+            for (c, cell) in row.iter().enumerate() {
+                widths[c] = widths[c].max(cell.chars().count());
+            }
+        }
+        let active: Vec<usize> = (0..5).filter(|&c| widths[c] > 0).collect();
+        let last_row = rows.len().saturating_sub(1);
+        for (i, row) in rows.iter().enumerate() {
+            let mut line = elem.clone();
+            for (j, &c) in active.iter().enumerate() {
+                if j + 1 == active.len() {
+                    line.push_str(&row[c]);
+                } else {
+                    // Pad the field to its column width and separate with a
+                    // single space, exactly as CREATE TABLE's column/type
+                    // alignment does (see render_aligned_column in stmt.rs).
+                    let pad = widths[c] - row[c].chars().count();
+                    line.push_str(&row[c]);
+                    line.push_str(&" ".repeat(pad + 1));
+                }
+            }
+            let mut line = line.trim_end().to_string();
+            if i < last_row {
+                line.push(',');
+            }
+            lines.push(line);
+        }
+    }
+
+    /// Split an element definition into its five aligned columns:
+    /// name (with any alias), KEY, SOURCE, DESTINATION, LABEL/PROPERTIES.
+    /// Absent fields are empty strings.
+    fn graph_element_cells(&self, def: Node<'a>) -> [String; 5] {
+        let mut cells: [String; 5] = Default::default();
+        let mut cursor = def.walk();
+        for child in def.named_children(&mut cursor) {
+            match child.kind() {
+                "qualified_name" => cells[0] = self.format_expr(child),
+                "opt_propgraph_table_alias" => {
+                    cells[0].push(' ');
+                    cells[0].push_str(&self.render_graph_inline(child));
+                }
+                "opt_graph_table_key_clause" => cells[1] = self.render_graph_inline(child),
+                "source_vertex_table" => cells[2] = self.render_graph_inline(child),
+                "destination_vertex_table" => cells[3] = self.render_graph_inline(child),
+                "opt_element_table_label_and_properties" => {
+                    cells[4] = self.render_graph_inline(child)
+                }
+                _ => {}
+            }
+        }
+        cells
+    }
+
+    /// Render a property-graph clause node inline, casing keyword leaves and
+    /// gluing punctuation. Used for element table definitions, which mix
+    /// identifiers, `LABEL`/`SOURCE`/`DESTINATION`/`KEY` keywords, and lists.
+    fn render_graph_inline(&self, node: Node<'a>) -> String {
+        let kind = node.kind();
+        if kind.starts_with("kw_") {
+            return self.kw(self.text(node));
+        }
+        match kind {
+            "qualified_name" => return self.format_expr(node),
+            "labeled_expr_list" => return self.format_labeled_expr_list(node),
+            "name" | "ColId" | "columnref" | "identifier" | "quoted_identifier" => {
+                return self.text(node).to_string();
+            }
+            _ => {}
+        }
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        if children.is_empty() {
+            return self.text(node).to_string();
+        }
+        let mut out = String::new();
+        for child in children {
+            let piece = self.render_graph_inline(child);
+            if piece.is_empty() {
+                continue;
+            }
+            if out.is_empty() {
+                out.push_str(&piece);
+                continue;
+            }
+            let tok = self.text(child);
+            let last = out.chars().last().unwrap_or(' ');
+            if tok == ")" || tok == "," || last == '(' {
+                out.push_str(&piece);
+            } else {
+                out.push(' ');
+                out.push_str(&piece);
+            }
+        }
+        out
+    }
+
     /// Format a table reference (for FROM clause), returning the table name with alias.
     pub(crate) fn format_table_ref(&self, node: Node<'a>) -> String {
+        // GRAPH_TABLE (...) SQL/PGQ property-graph query (PG19).
+        if node.has_child("kw_graph_table") {
+            return self.format_graph_table(node);
+        }
         let mut parts = Vec::new();
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
