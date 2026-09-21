@@ -521,12 +521,20 @@ impl<'a> Formatter<'a> {
         let first_line = format!("{padding}{keyword} ");
         if content.contains('\n') {
             // Multi-line content (e.g. subqueries): indent continuation lines
-            // to align with the content start column.
+            // to align with the content start column. A newline inside a
+            // string literal is data, not layout, so those lines are left
+            // alone — indenting them rewrites the literal's value and makes
+            // formatting non-idempotent.
             let indent = " ".repeat(first_line.len());
+            let inside = newlines_inside_literal(content);
             let mut lines = content.lines();
             let mut result = format!("{first_line}{}", lines.next().unwrap_or(""));
-            for line in lines {
+            for (i, line) in lines.enumerate() {
                 result.push('\n');
+                if inside.get(i).copied().unwrap_or(false) {
+                    result.push_str(line);
+                    continue;
+                }
                 result.push_str(&indent);
                 result.push_str(line);
             }
@@ -1184,6 +1192,43 @@ impl<'a> Formatter<'a> {
     /// Get the JOIN keyword for a joined_table node.
     pub(crate) fn get_join_keyword(&self, node: Node<'a>) -> String {
         let join_type = node.find_child("join_type");
+
+        // NATURAL and CROSS hang off the joined_table itself rather than off
+        // join_type, so looking only at join_type dropped them. A bare JOIN
+        // requires ON or USING, so losing CROSS produces invalid SQL.
+        let mut lead = Vec::new();
+        if node.has_child("kw_natural") {
+            lead.push(self.kw("NATURAL"));
+        }
+        if node.has_child("kw_cross") {
+            lead.push(self.kw("CROSS"));
+            lead.push(self.kw("JOIN"));
+            return lead.join(" ");
+        }
+        if !lead.is_empty() {
+            // NATURAL never takes an INNER qualifier.
+            let rest = if let Some(jt) = join_type {
+                let mut parts = Vec::new();
+                let mut cursor = jt.walk();
+                for child in jt.named_children(&mut cursor) {
+                    match child.kind() {
+                        "kw_left" => parts.push(self.kw("LEFT")),
+                        "kw_right" => parts.push(self.kw("RIGHT")),
+                        "kw_full" => parts.push(self.kw("FULL")),
+                        "kw_inner" | "kw_outer" => {}
+                        _ => parts.push(self.format_keyword_node(child)),
+                    }
+                }
+                parts.join(" ")
+            } else {
+                String::new()
+            };
+            if !rest.is_empty() {
+                lead.push(rest);
+            }
+            lead.push(self.kw("JOIN"));
+            return lead.join(" ");
+        }
 
         if let Some(jt) = join_type {
             let mut parts = Vec::new();
@@ -1869,4 +1914,30 @@ impl<'a> Formatter<'a> {
         }
         groups
     }
+}
+
+/// For each newline in `content`, whether it falls inside a single-quoted
+/// string literal. Index `i` corresponds to the line following the i-th
+/// newline, matching the continuation lines `river_line` re-indents.
+fn newlines_inside_literal(content: &str) -> Vec<bool> {
+    let mut out = Vec::new();
+    let mut in_quote = false;
+    let chars: Vec<char> = content.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '\'' => {
+                // A doubled quote inside a literal is an escaped quote.
+                if in_quote && i + 1 < chars.len() && chars[i + 1] == '\'' {
+                    i += 2;
+                    continue;
+                }
+                in_quote = !in_quote;
+            }
+            '\n' => out.push(in_quote),
+            _ => {}
+        }
+        i += 1;
+    }
+    out
 }

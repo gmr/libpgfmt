@@ -60,7 +60,7 @@ impl<'a> Formatter<'a> {
     /// canonical (single-line, single-spaced) deparser expressions; it folds
     /// the deparser's line breaks so the layout can be re-imposed.
     fn collapse_ws(&self, text: &str) -> String {
-        text.split_whitespace().collect::<Vec<_>>().join(" ")
+        collapse_ws_preserving_continuations(text)
     }
 
     /// Like [`collapse_ws`] but keeps a single boundary space when the original
@@ -458,6 +458,13 @@ impl<'a> Formatter<'a> {
                 let clauses = self.collect_select_clauses(body);
                 s.push('\n');
                 s.push_str(&self.pgdump_render_clauses(&clauses, depth + 1));
+            } else if let Some(stmt) = cte.find_child("PreparableStmt") {
+                // A data-modifying CTE (UPDATE/INSERT/DELETE ... RETURNING) has
+                // no select_no_parens, and rendering nothing left `WITH t AS ()`.
+                // Out of scope for the deparser layout, so reproduce verbatim.
+                s.push('\n');
+                s.push_str(&" ".repeat(STEP * (depth + 1)));
+                s.push_str(&self.collapse_ws(self.text(stmt)));
             }
             s.push('\n');
             s.push_str(&close);
@@ -559,4 +566,57 @@ impl<'a> Formatter<'a> {
             behavior.clear();
         }
     }
+}
+
+/// Collapse whitespace runs to a single space, with one exception: a run that
+/// contains a newline and sits between two string constants is kept as a
+/// newline.
+///
+/// PostgreSQL concatenates two string constants only when a line break
+/// separates them; on one line the adjacency is a syntax error. Collapsing
+/// that newline turns `SELECT 'foo'\n'bar'` into invalid SQL.
+fn collapse_ws_preserving_continuations(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\'' {
+            // Copy the literal verbatim, including doubled quotes.
+            out.push(c);
+            i += 1;
+            while i < chars.len() {
+                out.push(chars[i]);
+                if chars[i] == '\'' {
+                    i += 1;
+                    if i < chars.len() && chars[i] == '\'' {
+                        out.push('\'');
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if c.is_whitespace() {
+            let mut j = i;
+            let mut saw_newline = false;
+            while j < chars.len() && chars[j].is_whitespace() {
+                saw_newline |= chars[j] == '\n';
+                j += 1;
+            }
+            let between_literals =
+                saw_newline && out.ends_with('\'') && j < chars.len() && chars[j] == '\'';
+            if !out.is_empty() && j < chars.len() {
+                out.push(if between_literals { '\n' } else { ' ' });
+            }
+            i = j;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
 }
