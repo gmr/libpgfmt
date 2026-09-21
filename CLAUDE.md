@@ -73,8 +73,11 @@ state and paren depth.
 `SQL_BUILTIN_FUNCTIONS`) follow keyword casing. User-defined function names are
 preserved as-is.
 
-**Error tolerance**: Small tree-sitter ERROR nodes (< 5 bytes, e.g., decimal
-fractions) are tolerated; only structural errors reject the input.
+**Error tolerance**: Small tree-sitter ERROR nodes (< 5 bytes) *nested inside a
+statement* are tolerated, because their text is still rendered as part of that
+statement. An ERROR node directly under the root belongs to no statement, so
+nothing would render it; those reject the input regardless of size, as does any
+MISSING node.
 
 ## Test Fixtures
 
