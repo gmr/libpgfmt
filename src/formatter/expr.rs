@@ -772,6 +772,19 @@ impl<'a> Formatter<'a> {
             };
         }
 
+        // Zero-argument keyword functions spelled with empty parentheses, e.g.
+        // merge_action(). The generic child walk below would space out the
+        // parens as `MERGE_ACTION ( )`.
+        if let Some(kw) = subexpr
+            .named_children_vec()
+            .into_iter()
+            .find(|c| c.kind().starts_with("kw_"))
+            && subexpr.named_children_vec().len() == 1
+            && self.text(subexpr).trim_end().ends_with("()")
+        {
+            return format!("{}()", self.kw(self.text(kw)));
+        }
+
         // Handle COALESCE, GREATEST, LEAST, NULLIF, etc.
         // These are function-like: KEYWORD(args)
         if let Some(expr_list) = subexpr.find_child("expr_list") {

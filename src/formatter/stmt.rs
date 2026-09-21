@@ -25,6 +25,7 @@ impl<'a> Formatter<'a> {
                 "InsertStmt" => self.format_insert_stmt(child),
                 "UpdateStmt" => self.format_update_stmt(child),
                 "DeleteStmt" => self.format_delete_stmt(child),
+                "MergeStmt" => self.format_merge_stmt(child),
                 "CreateStmt" => self.format_create_table_stmt(child),
                 "ViewStmt" => self.format_view_stmt(child),
                 "CreateFunctionStmt" => self.format_create_function_stmt(child),
@@ -414,6 +415,199 @@ impl<'a> Formatter<'a> {
             }
             lines.push(format!("{indent}{text}"));
         }
+    }
+
+    // ── MERGE ───────────────────────────────────────────────────────────
+
+    /// Format `[WITH ...] MERGE INTO <target> USING <source> ON <cond>
+    /// <WHEN clauses> [RETURNING ...]`.
+    ///
+    /// Each WHEN clause takes its own line with the action indented beneath
+    /// it, since an action is itself a whole UPDATE/INSERT/DELETE and reads
+    /// poorly trailing a long condition.
+    pub(crate) fn format_merge_stmt(&self, node: Node<'a>) -> String {
+        let target = node
+            .find_child("relation_expr_opt_alias")
+            .map(|n| self.format_relation_expr_opt_alias(n))
+            .unwrap_or_default();
+        let source = node
+            .find_child("table_ref")
+            .map(|n| self.format_table_ref(n))
+            .unwrap_or_default();
+        let whens: Vec<Node<'a>> = node
+            .find_child("merge_when_list")
+            .map(|l| flatten_list(l, "merge_when_list"))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n.kind() == "merge_when_clause")
+            .collect();
+
+        let mut lines = Vec::new();
+
+        if self.config.river {
+            let merge_kw = self.kw_pair("MERGE", "INTO");
+            let mut keywords = vec![merge_kw.clone(), self.kw("USING"), self.kw("ON")];
+            if !whens.is_empty() {
+                keywords.push(self.kw("WHEN"));
+            }
+            if node.has_child("returning_clause") {
+                keywords.push(self.kw("RETURNING"));
+            }
+            let width = keywords.iter().map(|k| k.len()).max().unwrap_or(0);
+            let content_col = width + 1;
+
+            if let Some(with) = node
+                .find_child("opt_with_clause")
+                .and_then(|w| w.find_child("with_clause"))
+            {
+                lines.push(self.format_with_clause_river_inner(with, width, true));
+            }
+            lines.push(self.river_line(&merge_kw, &target, width));
+            lines.push(self.river_line(&self.kw("USING"), &source, width));
+            if let Some(cond) = node.find_child("a_expr") {
+                let conditions = self.split_top_level_conditions(cond);
+                lines.push(self.river_line(&self.kw("ON"), &conditions[0].1, width));
+                for (op, text) in &conditions[1..] {
+                    lines.push(self.river_line(op, text, width));
+                }
+            }
+            let pad = " ".repeat(content_col);
+            for when in &whens {
+                let (head, action) = self.format_merge_when_clause(*when);
+                lines.push(self.river_line(&self.kw("WHEN"), &head, width));
+                for line in action {
+                    lines.push(format!("{pad}{line}"));
+                }
+            }
+            if let Some(ret) = node.find_child("returning_clause")
+                && let Some(text) = self.returning_text(ret)
+            {
+                lines.push(self.river_line(&self.kw("RETURNING"), &text, width));
+            }
+        } else {
+            let indent = self.config.indent;
+            if let Some(with) = node
+                .find_child("opt_with_clause")
+                .and_then(|w| w.find_child("with_clause"))
+            {
+                lines.push(self.format_with_clause_left(with));
+            }
+            lines.push(format!("{} {target}", self.kw_pair("MERGE", "INTO")));
+            lines.push(format!("{} {source}", self.kw("USING")));
+            if let Some(cond) = node.find_child("a_expr") {
+                let conditions = self.split_top_level_conditions(cond);
+                lines.push(format!("{} {}", self.kw("ON"), conditions[0].1));
+                for (op, text) in &conditions[1..] {
+                    lines.push(format!("{op} {text}"));
+                }
+            }
+            for when in &whens {
+                let (head, action) = self.format_merge_when_clause(*when);
+                lines.push(format!("{} {head}", self.kw("WHEN")));
+                for line in action {
+                    lines.push(format!("{indent}{line}"));
+                }
+            }
+            if let Some(ret) = node.find_child("returning_clause")
+                && let Some(text) = self.returning_text(ret)
+            {
+                lines.push(format!("{} {text}", self.kw("RETURNING")));
+            }
+        }
+
+        lines.join("\n")
+    }
+
+    /// Split a `merge_when_clause` into its `WHEN` head (everything up to and
+    /// including THEN, with the leading WHEN removed) and the action lines.
+    fn format_merge_when_clause(&self, node: Node<'a>) -> (String, Vec<String>) {
+        let mut head = Vec::new();
+        if let Some(tgt) =
+            node.find_child_any(&["merge_when_tgt_matched", "merge_when_tgt_not_matched"])
+        {
+            // NOT / MATCHED / BY SOURCE|TARGET, minus the leading WHEN that
+            // the caller emits as the river keyword.
+            let mut cursor = tgt.walk();
+            for child in tgt.named_children(&mut cursor) {
+                if child.kind() != "kw_when" {
+                    head.push(self.kw(self.text(child)));
+                }
+            }
+        }
+        if let Some(cond) = node.find_child("opt_merge_when_condition") {
+            head.push(self.render_clause_inline(cond));
+        }
+        head.push(self.kw("THEN"));
+
+        let mut action = Vec::new();
+        if let Some(upd) = node.find_child("merge_update") {
+            let sets = upd
+                .find_child("set_clause_list")
+                .map(|l| flatten_list(l, "set_clause_list"))
+                .unwrap_or_default();
+            let formatted: Vec<_> = sets.iter().map(|c| self.format_set_clause(*c)).collect();
+            action.push(format!(
+                "{} {} {}",
+                self.kw("UPDATE"),
+                self.kw("SET"),
+                formatted.join(", ")
+            ));
+        } else if node.has_child("merge_delete") {
+            action.push(self.kw("DELETE"));
+        } else if let Some(ins) = node.find_child("merge_insert") {
+            action.extend(self.format_merge_insert(ins));
+        } else if node.has_child("kw_do") {
+            action.push(self.kw_pair("DO", "NOTHING"));
+        }
+        (head.join(" "), action)
+    }
+
+    /// Render a `merge_insert` action: the INSERT header (optional column
+    /// list and OVERRIDING clause) and its VALUES on a following line.
+    fn format_merge_insert(&self, node: Node<'a>) -> Vec<String> {
+        let mut header = self.kw("INSERT");
+        if let Some(cols) = node.find_child("insert_column_list") {
+            let items = flatten_list(cols, "insert_column_list");
+            let formatted: Vec<_> = items.iter().map(|c| self.format_expr(*c)).collect();
+            header = format!("{header} ({})", formatted.join(", "));
+        }
+        if node.has_child("kw_overriding") {
+            let kind = node
+                .find_child("override_kind")
+                .map(|ok| {
+                    if ok.has_child("kw_system") {
+                        self.kw("SYSTEM")
+                    } else {
+                        self.kw("USER")
+                    }
+                })
+                .unwrap_or_default();
+            header = format!(
+                "{header} {} {kind} {}",
+                self.kw("OVERRIDING"),
+                self.kw("VALUE")
+            );
+        }
+        if node.has_child("kw_default") {
+            return vec![format!("{header} {}", self.kw_pair("DEFAULT", "VALUES"))];
+        }
+        let bare = header == self.kw("INSERT");
+        let mut out = vec![header];
+        if let Some(values) = node.find_child("merge_values_clause")
+            && let Some(list) = values.find_child("expr_list")
+        {
+            let items = flatten_list(list, "expr_list");
+            let formatted: Vec<_> = items.iter().map(|e| self.format_expr(*e)).collect();
+            let values = format!("{} ({})", self.kw("VALUES"), formatted.join(", "));
+            // `INSERT VALUES (...)` fits one line; a column list or OVERRIDING
+            // clause makes the header long enough to want its own.
+            if bare {
+                out[0] = format!("{} {values}", out[0]);
+            } else {
+                out.push(values);
+            }
+        }
+        out
     }
 
     // ── DELETE ──────────────────────────────────────────────────────────
@@ -1679,10 +1873,18 @@ impl<'a> Formatter<'a> {
                     }
                 }
                 "ColId" => {
-                    // Bare identifier alias without AS keyword.
                     let alias = self.format_expr(child);
                     if !alias.is_empty() {
-                        parts.push(format!("{} {alias}", self.kw("AS")));
+                        // The `relation_expr AS ColId` form already carries
+                        // kw_as as a sibling, which the catch-all arm emits.
+                        // Only the bare `relation_expr ColId` form needs AS
+                        // supplied, otherwise the output doubles it and, on a
+                        // second pass, drops the alias entirely.
+                        if node.has_child("kw_as") {
+                            parts.push(alias);
+                        } else {
+                            parts.push(format!("{} {alias}", self.kw("AS")));
+                        }
                     }
                 }
                 _ => parts.push(self.format_expr(child)),

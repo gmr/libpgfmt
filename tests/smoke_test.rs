@@ -495,3 +495,146 @@ fn junk_outside_statements_errors_instead_of_dropping() {
         );
     }
 }
+
+// Regression for https://github.com/gmr/libpgfmt/issues/49: MERGE had no arm
+// in format_stmt, so it fell through to the verbatim passthrough — the only
+// DML statement that was neither laid out nor keyword-cased.
+#[test]
+fn merge_statement_river_layout() {
+    let sql = "merge into customer_account ca using recent_transactions t \
+               on t.customer_id = ca.customer_id \
+               when matched then update set balance = balance + transaction_value \
+               when not matched then insert (customer_id, balance) \
+               values (t.customer_id, t.transaction_value)";
+    assert_eq!(
+        format(sql, Style::River).unwrap(),
+        "\
+MERGE INTO customer_account AS ca
+     USING recent_transactions AS t
+        ON t.customer_id = ca.customer_id
+      WHEN MATCHED THEN
+           UPDATE SET balance = balance + transaction_value
+      WHEN NOT MATCHED THEN
+           INSERT (customer_id, balance)
+           VALUES (t.customer_id, t.transaction_value);"
+    );
+
+    // Left-aligned styles use their own indent for the action.
+    assert_eq!(
+        format(
+            "MERGE INTO t USING u ON t.id = u.id WHEN MATCHED THEN UPDATE SET a = 1",
+            Style::Gitlab
+        )
+        .unwrap(),
+        "\
+MERGE INTO t
+USING u
+ON t.id = u.id
+WHEN MATCHED THEN
+  UPDATE SET a = 1;"
+    );
+}
+
+// Every merge_when_clause shape, the WHEN qualifiers, and the surrounding
+// clauses must survive and be cased.
+#[test]
+fn merge_statement_all_clause_shapes() {
+    let head = "MERGE INTO t USING u ON t.id = u.id ";
+    let cases = [
+        (
+            "WHEN MATCHED THEN DELETE",
+            "WHEN MATCHED THEN\n           DELETE",
+        ),
+        (
+            "WHEN MATCHED THEN DO NOTHING",
+            "WHEN MATCHED THEN\n           DO NOTHING",
+        ),
+        (
+            "WHEN MATCHED AND u.x > 0 THEN UPDATE SET a = 1",
+            "WHEN MATCHED AND u.x > 0 THEN\n           UPDATE SET a = 1",
+        ),
+        (
+            "WHEN NOT MATCHED THEN INSERT VALUES (1)",
+            "WHEN NOT MATCHED THEN\n           INSERT VALUES (1)",
+        ),
+        (
+            "WHEN NOT MATCHED THEN INSERT DEFAULT VALUES",
+            "WHEN NOT MATCHED THEN\n           INSERT DEFAULT VALUES",
+        ),
+        (
+            "WHEN NOT MATCHED THEN INSERT OVERRIDING SYSTEM VALUE VALUES (1)",
+            "WHEN NOT MATCHED THEN\n           INSERT OVERRIDING SYSTEM VALUE\n           VALUES (1)",
+        ),
+        (
+            "WHEN NOT MATCHED BY SOURCE THEN DELETE",
+            "WHEN NOT MATCHED BY SOURCE THEN\n           DELETE",
+        ),
+        // NOT MATCHED [BY TARGET] admits only INSERT or DO NOTHING.
+        (
+            "WHEN NOT MATCHED BY TARGET THEN INSERT VALUES (1)",
+            "WHEN NOT MATCHED BY TARGET THEN\n           INSERT VALUES (1)",
+        ),
+    ];
+    for (when, expected) in cases {
+        let result = format(&format!("{head}{when}"), Style::River).unwrap();
+        assert!(
+            result.contains(expected),
+            "\nInput: {when}\nExpected to contain:\n{expected}\nGot:\n{result}"
+        );
+    }
+
+    // A CTE, a subquery source, a split ON condition, and RETURNING.
+    let full = "WITH c AS (SELECT 1 AS id) MERGE INTO t USING (SELECT 1 AS id) s \
+                ON t.id = s.id AND t.k = s.k WHEN MATCHED THEN DELETE \
+                RETURNING merge_action(), t.id";
+    let result = format(full, Style::River).unwrap();
+    for fragment in [
+        "WITH c AS (",
+        "USING (SELECT 1 AS id) AS s",
+        "        ON t.id = s.id",
+        "       AND t.k = s.k",
+        " RETURNING MERGE_ACTION(), t.id",
+    ] {
+        assert!(
+            result.contains(fragment),
+            "missing {fragment:?}\nGot:\n{result}"
+        );
+    }
+}
+
+// Formatting must be idempotent for every style. An alias written with an
+// explicit AS previously doubled the keyword on each pass — `t AS x` became
+// `t AS AS x`, then `t AS AS AS`, which no longer parses.
+#[test]
+fn relation_alias_is_idempotent() {
+    let cases = [
+        "UPDATE t AS x SET a = 1",
+        "UPDATE t x SET a = 1",
+        "DELETE FROM t AS x",
+        "MERGE INTO products AS p USING n ON p.id = n.id WHEN MATCHED THEN DELETE",
+    ];
+    for &style in Style::ALL {
+        for sql in cases {
+            let once = format(sql, style).unwrap();
+            let twice = format(&once, style).unwrap();
+            assert_eq!(once, twice, "\nStyle: {style}\nInput: {sql}");
+            assert!(
+                !once.contains("AS AS"),
+                "\nStyle: {style}\nInput: {sql}\nGot:\n{once}"
+            );
+        }
+    }
+}
+
+// Zero-argument keyword functions keep their parentheses tight.
+#[test]
+fn zero_arg_keyword_functions() {
+    assert_eq!(
+        format("SELECT merge_action()", Style::River).unwrap(),
+        "SELECT MERGE_ACTION();"
+    );
+    assert_eq!(
+        format("SELECT current_user", Style::River).unwrap(),
+        "SELECT CURRENT_USER;"
+    );
+}
