@@ -899,6 +899,9 @@ impl<'a> Formatter<'a> {
         if let Some(like) = node.find_child("TableLikeClause") {
             return TableElementKind::Constraint(None, self.render_clause_inline(like));
         }
+        if let Some(opts) = node.find_child("columnOptions") {
+            return TableElementKind::Constraint(None, self.render_clause_inline(opts));
+        }
         TableElementKind::Constraint(None, normalize_whitespace(self.text(node)))
     }
 
@@ -933,18 +936,23 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_table_element(&self, node: Node<'a>) -> String {
-        match node.kind() {
-            "TableElement" => {
-                if let Some(col) = node.find_child("columnDef") {
-                    return self.format_column_def(col);
-                }
-                if let Some(constraint) = node.find_child("TableConstraint") {
-                    return self.format_table_constraint(constraint);
-                }
-                self.text(node).to_string()
-            }
-            _ => self.text(node).to_string(),
+        // Matches the inner child rather than the wrapper kind, so
+        // TypedTableElement (CREATE TABLE ... OF type) is formatted like
+        // TableElement instead of falling back to raw source text with its
+        // keyword casing and whitespace unnormalized.
+        if let Some(col) = node.find_child("columnDef") {
+            return self.format_column_def(col);
         }
+        if let Some(constraint) = node.find_child("TableConstraint") {
+            return self.format_table_constraint(constraint);
+        }
+        if let Some(like) = node.find_child("TableLikeClause") {
+            return self.render_clause_inline(like);
+        }
+        if let Some(opts) = node.find_child("columnOptions") {
+            return self.render_clause_inline(opts);
+        }
+        normalize_whitespace(self.text(node))
     }
 
     fn format_column_def(&self, node: Node<'a>) -> String {
@@ -1279,7 +1287,7 @@ impl<'a> Formatter<'a> {
             }
         }
 
-        parts.join("\n    ")
+        parts.join(&format!("\n{}", self.config.indent))
     }
 
     fn format_func_args(&self, node: Node<'a>) -> String {
@@ -1356,10 +1364,16 @@ impl<'a> Formatter<'a> {
 
     /// Format a SQL-standard routine body: `RETURN expr`, or a `BEGIN ATOMIC
     /// ... END` block with one statement per line.
+    ///
+    /// Only the first line is left unindented — the caller's option join
+    /// supplies that one. Every later line carries its own indent, so blank
+    /// lines (dbt separates clauses with one) stay genuinely blank instead of
+    /// becoming a line of spaces.
     fn format_routine_body(&self, node: Node<'a>) -> String {
         if let Some(ret) = node.find_child("ReturnStmt") {
             return self.render_clause_inline(ret);
         }
+        let indent = self.config.indent;
         let mut lines = vec![format!("{} {}", self.kw("BEGIN"), self.kw("ATOMIC"))];
         if let Some(list) = node.find_child("routine_body_stmt_list") {
             for stmt in flatten_list(list, "routine_body_stmt_list") {
@@ -1384,15 +1398,19 @@ impl<'a> Formatter<'a> {
                 };
                 let body = body.trim_end_matches(';');
                 for line in body.lines() {
-                    lines.push(format!("    {line}"));
+                    if line.is_empty() {
+                        lines.push(String::new());
+                    } else {
+                        lines.push(format!("{indent}{indent}{line}"));
+                    }
                 }
                 if let Some(last) = lines.last_mut() {
                     last.push(';');
                 }
             }
         }
-        lines.push(self.kw("END"));
-        lines.join("\n    ")
+        lines.push(format!("{indent}{}", self.kw("END")));
+        lines.join("\n")
     }
 
     // ── CREATE DOMAIN ───────────────────────────────────────────────────

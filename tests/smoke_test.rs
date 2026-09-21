@@ -827,6 +827,9 @@ fn no_trailing_whitespace_on_table_elements() {
         "CREATE TABLE t (LIKE u INCLUDING ALL) INHERITS (v) TABLESPACE ts",
         "CREATE TABLE t OF ty (PRIMARY KEY (a))",
         "CREATE TABLE t (a int, EXCLUDE USING gist (a WITH =))",
+        // dbt separates SELECT clauses with a blank line; indenting it into
+        // a routine body must leave it genuinely blank.
+        "CREATE FUNCTION g() RETURNS text LANGUAGE sql BEGIN ATOMIC SELECT a FROM c; END",
     ];
     for &style in Style::ALL {
         for sql in cases {
@@ -840,4 +843,41 @@ fn no_trailing_whitespace_on_table_elements() {
             }
         }
     }
+}
+
+// Function options and routine bodies must follow the style's indent width
+// rather than a hardcoded four spaces, and typed-table elements must be
+// keyword-cased rather than echoed as raw source.
+#[test]
+fn function_and_typed_table_respect_style() {
+    // GitLab indents with two spaces.
+    assert_eq!(
+        format(
+            "CREATE FUNCTION g() RETURNS text LANGUAGE sql STRICT BEGIN ATOMIC SELECT a FROM c; END",
+            Style::Gitlab
+        )
+        .unwrap(),
+        "\
+CREATE FUNCTION g() RETURNS TEXT
+  LANGUAGE sql
+  STRICT
+  BEGIN ATOMIC
+    SELECT a
+    FROM c;
+  END;"
+    );
+
+    // dbt lowercases keywords, including inside typed-table elements.
+    assert_eq!(
+        format(
+            "CREATE TABLE t OF ty (PRIMARY KEY (a), b WITH OPTIONS NOT NULL)",
+            Style::Dbt
+        )
+        .unwrap(),
+        "\
+create table t of ty (
+    primary key (a),
+    b with options not null
+);"
+    );
 }
