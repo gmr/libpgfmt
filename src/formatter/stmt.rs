@@ -62,10 +62,10 @@ impl<'a> Formatter<'a> {
         let mut parts = Vec::new();
 
         // River aligns the CTE to the INSERT INTO keyword pair, the way the
-        // VALUES clause below aligns to it.
-        if let Some(with) = self.dml_with_clause(node, self.kw_pair("INSERT", "INTO").len()) {
-            parts.push(with);
-        }
+        // VALUES clause below aligns to it. Held aside rather than pushed:
+        // the column-list, OVERRIDING and DEFAULT VALUES branches below all
+        // rewrite `parts[0]`, which must stay the INSERT header.
+        let with_clause = self.dml_with_clause(node, self.kw_pair("INSERT", "INTO").len());
 
         // INSERT INTO target.
         let target = node
@@ -182,6 +182,10 @@ impl<'a> Formatter<'a> {
             } else {
                 parts.push(format!("{} {text}", self.kw("RETURNING")));
             }
+        }
+
+        if let Some(with) = with_clause {
+            parts.insert(0, with);
         }
 
         parts.join("\n")

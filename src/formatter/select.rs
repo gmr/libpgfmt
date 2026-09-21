@@ -276,7 +276,16 @@ impl<'a> Formatter<'a> {
         let mut lines = Vec::new();
 
         // Calculate river width from all keywords that will appear.
-        let keywords = self.collect_river_keywords(clauses);
+        let mut keywords = self.collect_river_keywords(clauses);
+        // Inside a CTE body the WITH keyword is river-aligned too, and
+        // `WITH RECURSIVE` is wider than any clause keyword, so it has to
+        // take part in the width or its CTE starts right of the river.
+        if min_width > 0
+            && let Some(with) = clauses.with_clause
+            && with.has_child("kw_recursive")
+        {
+            keywords.push(self.kw_pair("WITH", "RECURSIVE"));
+        }
         // Don't apply min_width to set operations (UNION/INTERSECT/EXCEPT)
         // as they format their own halves independently.
         let effective_min = if clauses.set_op.is_some() {

@@ -704,3 +704,51 @@ fn with_recursive_keyword_preserved() {
         "\nGot:\n{plain}"
     );
 }
+
+// The CTE is rendered before INSERT but must not become `parts[0]`: the
+// column-list, OVERRIDING and DEFAULT VALUES branches all rewrite the INSERT
+// header in place, and river computes the VALUES width from it.
+#[test]
+fn insert_column_list_with_cte() {
+    for &style in Style::ALL {
+        let result = format(
+            "WITH c AS (SELECT 1 AS id) INSERT INTO t (id) SELECT id FROM c",
+            style,
+        )
+        .unwrap();
+        assert!(
+            result.to_uppercase().contains("INSERT INTO T (ID)"),
+            "column list detached from INSERT\nStyle: {style}\nGot:\n{result}"
+        );
+        format(&result, style).unwrap();
+    }
+
+    assert_eq!(
+        format(
+            "WITH c AS (SELECT 1 AS id) INSERT INTO t (id) VALUES (1), (2)",
+            Style::River
+        )
+        .unwrap(),
+        "       WITH c AS (\n            SELECT 1 AS id\n            )\nINSERT INTO t (id)\n     VALUES (1),\n            (2);"
+    );
+}
+
+// `WITH RECURSIVE` is wider than any clause keyword, so inside a CTE body it
+// has to join the river-width calculation or its CTE starts right of the
+// river the sibling clauses use.
+#[test]
+fn nested_recursive_cte_river_width() {
+    let result = format(
+        "WITH outer_cte AS (WITH RECURSIVE t AS (SELECT 1 AS n) SELECT n FROM t WHERE n > 2) SELECT * FROM outer_cte",
+        Style::River,
+    )
+    .unwrap();
+    for line in [
+        "WITH RECURSIVE t AS (",
+        "        SELECT n",
+        "          FROM t",
+    ] {
+        assert!(result.contains(line), "missing {line:?}\nGot:\n{result}");
+    }
+    format(&result, Style::River).unwrap();
+}
