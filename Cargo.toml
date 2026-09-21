@@ -2,7 +2,7 @@
 name = "libpgfmt"
 version = "1.4.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.96"
 description = "A Rust library for formatting PostgreSQL SQL and PL/pgSQL"
 license = "BSD-3-Clause"
 repository = "https://github.com/gmr/libpgfmt"
