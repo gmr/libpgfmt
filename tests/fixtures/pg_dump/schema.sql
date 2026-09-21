@@ -98,22 +98,6 @@ CREATE FUNCTION app.fn_return(x integer) RETURNS integer LANGUAGE sql RETURN x +
 
 -- PostgreSQL 19 features.
 --
--- SQL/PGQ property graphs (pg_get_propgraphdef): a vertex-only graph and a
--- full graph with labels, an aliased edge, and SOURCE/DESTINATION references.
-CREATE PROPERTY GRAPH app.graph_min
-  VERTEX TABLES (app.users);
-CREATE PROPERTY GRAPH app.graph_shop
-  VERTEX TABLES (
-    app.users KEY (id) LABEL customer,
-    app.orders KEY (id) LABEL purchase
-  )
-  EDGE TABLES (
-    app.orders AS made KEY (id)
-      SOURCE KEY (user_id) REFERENCES users (id)
-      DESTINATION KEY (id) REFERENCES orders (id)
-      LABEL placed
-  );
-
 -- Window null treatment (IGNORE NULLS) and ordered-set aggregate (WITHIN GROUP)
 -- captured via a view, exercising the aggregate-clause formatting path.
 CREATE VIEW app.nulls_win AS

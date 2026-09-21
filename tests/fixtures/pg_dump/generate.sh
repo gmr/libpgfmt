@@ -40,10 +40,4 @@ cap "SELECT pg_get_functiondef('app.bump(bigint)'::regprocedure);" > "$FIXDIR/fu
 for f in fn_default fn_out fn_variadic fn_table fn_setof fn_behavior fn_set fn_return; do
     cap "SELECT pg_get_functiondef(p.oid) FROM pg_proc p WHERE p.proname = '$f';" > "$FIXDIR/func_${f#fn_}.sql"
 done
-# PostgreSQL 19 SQL/PGQ property graphs. pg_dump terminates the deparser body
-# with a semicolon, so the fixture carries one to match what a dump emits.
-for g in graph_min graph_shop; do
-    cap "SELECT pg_get_propgraphdef('app.$g'::regclass) || ';';" > "$FIXDIR/propgraph_${g#graph_}.sql"
-done
-
 echo "done — fixtures written to $FIXDIR"
