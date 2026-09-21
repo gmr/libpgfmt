@@ -220,6 +220,7 @@ impl<'a> Formatter<'a> {
             }
         }
 
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 
@@ -499,18 +500,60 @@ impl<'a> Formatter<'a> {
             String::new()
         };
 
-        let mut lines = Vec::new();
-        lines.push(format!(
-            "{} {} {if_not_exists}{table_name} (",
+        // TEMP / TEMPORARY / UNLOGGED, and the GLOBAL/LOCAL variants.
+        let temp = node
+            .find_child("OptTemp")
+            .map(|n| format!("{} ", self.kw(normalize_whitespace(self.text(n)).as_str())))
+            .unwrap_or_default();
+
+        let mut header = format!(
+            "{} {temp}{} {if_not_exists}{table_name}",
             self.kw("CREATE"),
             self.kw("TABLE")
-        ));
+        );
 
-        // Column definitions and constraints.
-        if let Some(elem_list) = node
+        // `PARTITION OF parent` and `OF type` name a second relation or type
+        // between the table name and the element list.
+        let parent = node
+            .named_children_vec()
+            .into_iter()
+            .filter(|c| c.kind() == "qualified_name")
+            .nth(1);
+        if let Some(parent) = parent.filter(|_| node.has_child("kw_partition")) {
+            header.push_str(&format!(
+                " {} {}",
+                self.kw_pair("PARTITION", "OF"),
+                self.format_qualified_name(parent)
+            ));
+        } else if let Some(of_type) = node
+            .find_child("any_name")
+            .filter(|_| node.has_child("kw_of"))
+        {
+            header.push_str(&format!(
+                " {} {}",
+                self.kw("OF"),
+                self.render_clause_inline(of_type)
+            ));
+        }
+
+        // A typed or partition table may omit the element list entirely.
+        let elem_list = node
             .find_child("OptTableElementList")
             .and_then(|n| n.find_child("TableElementList"))
-        {
+            .or_else(|| {
+                node.find_child("OptTypedTableElementList")
+                    .and_then(|n| n.find_child("TypedTableElementList"))
+            });
+
+        let mut lines = Vec::new();
+        if elem_list.is_none() {
+            lines.push(header);
+        } else {
+            lines.push(format!("{header} ("));
+        }
+
+        // Column definitions and constraints.
+        if let Some(elem_list) = elem_list {
             let indent = self.config.indent;
 
             // Comments interspersed with the columns/constraints are associated
@@ -639,7 +682,14 @@ impl<'a> Formatter<'a> {
             }
         }
 
-        lines.push(")".to_string());
+        if elem_list.is_some() {
+            lines.push(")".to_string());
+        }
+
+        // FOR VALUES ... / DEFAULT, the bound of a PARTITION OF table.
+        if let Some(bound) = node.find_child("PartitionBoundSpec") {
+            lines.push(self.render_clause_inline(bound));
+        }
 
         // INHERITS (parent, ...).
         if let Some(inh) = node.find_child("OptInherit")
@@ -680,6 +730,11 @@ impl<'a> Formatter<'a> {
             ));
         }
 
+        // USING <access method>.
+        if let Some(am) = node.find_child("table_access_method_clause") {
+            lines.push(self.render_clause_inline(am));
+        }
+
         // WITH clause for storage parameters.
         // OptWith already contains the WITH keyword, so just normalize.
         if let Some(with) = node.find_child("OptWith") {
@@ -687,6 +742,11 @@ impl<'a> Formatter<'a> {
             if !text.is_empty() {
                 lines.push(text);
             }
+        }
+
+        // ON COMMIT { DROP | DELETE ROWS | PRESERVE ROWS }.
+        if let Some(oc) = node.find_child("OnCommitOption") {
+            lines.push(self.render_clause_inline(oc));
         }
 
         // TABLESPACE name.
@@ -744,7 +804,7 @@ impl<'a> Formatter<'a> {
         node: Node<'a>,
         elem_list: Node<'a>,
     ) -> (Vec<String>, Vec<(Node<'a>, Vec<String>)>) {
-        let raw = flatten_list(elem_list, "TableElementList");
+        let raw = flatten_list(elem_list, elem_list.kind());
         let (group_leading, mut grouped) = self.group_table_elements(&raw);
         let list_start = elem_list.start_byte();
         let close_paren = {
@@ -806,40 +866,40 @@ impl<'a> Formatter<'a> {
 
     /// Classify a table element for river-style CREATE TABLE formatting.
     fn classify_table_element(&self, node: Node<'a>) -> TableElementKind {
-        match node.kind() {
-            "TableElement" => {
-                if let Some(col) = node.find_child("columnDef") {
-                    let name = col
-                        .find_child("ColId")
-                        .map(|n| self.format_col_id(n))
-                        .unwrap_or_default();
-                    let typename = col
-                        .find_child("Typename")
-                        .map(|n| self.format_typename(n))
-                        .unwrap_or_default();
-                    let mut constraint_parts = Vec::new();
-                    if let Some(opts) = col.find_child("create_generic_options") {
-                        constraint_parts.push(self.format_col_generic_options_inline(opts));
-                    }
-                    if let Some(qual_list) = col.find_child("ColQualList") {
-                        let constraints = flatten_list(qual_list, "ColQualList");
-                        for child in constraints {
-                            if child.kind() == "ColConstraint" {
-                                constraint_parts.push(self.format_col_constraint(child));
-                            }
-                        }
-                    }
-                    return TableElementKind::Column(name, typename, constraint_parts.join(" "));
-                }
-                if let Some(constraint) = node.find_child("TableConstraint") {
-                    return self.classify_table_constraint(constraint);
-                }
-                TableElementKind::Column(self.text(node).to_string(), String::new(), String::new())
+        // Matches the element's inner child rather than the wrapper kind, so
+        // TypedTableElement (CREATE TABLE ... OF type) classifies the same way
+        // as TableElement instead of falling through to an untyped column,
+        // which the river layout then padded with a trailing space.
+        if let Some(col) = node.find_child("columnDef") {
+            let name = col
+                .find_child("ColId")
+                .map(|n| self.format_col_id(n))
+                .unwrap_or_default();
+            let typename = col
+                .find_child("Typename")
+                .map(|n| self.format_typename(n))
+                .unwrap_or_default();
+            let mut constraint_parts = Vec::new();
+            if let Some(opts) = col.find_child("create_generic_options") {
+                constraint_parts.push(self.format_col_generic_options_inline(opts));
             }
-            _ => {
-                TableElementKind::Column(self.text(node).to_string(), String::new(), String::new())
+            if let Some(qual_list) = col.find_child("ColQualList") {
+                let constraints = flatten_list(qual_list, "ColQualList");
+                for child in constraints {
+                    if child.kind() == "ColConstraint" {
+                        constraint_parts.push(self.format_col_constraint(child));
+                    }
+                }
             }
+            return TableElementKind::Column(name, typename, constraint_parts.join(" "));
         }
+        if let Some(constraint) = node.find_child("TableConstraint") {
+            return self.classify_table_constraint(constraint);
+        }
+        if let Some(like) = node.find_child("TableLikeClause") {
+            return TableElementKind::Constraint(None, self.render_clause_inline(like));
+        }
+        TableElementKind::Constraint(None, normalize_whitespace(self.text(node)))
     }
 
     fn classify_table_constraint(&self, node: Node<'a>) -> TableElementKind {
@@ -912,6 +972,7 @@ impl<'a> Formatter<'a> {
             }
         }
 
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 
@@ -931,6 +992,7 @@ impl<'a> Formatter<'a> {
             parts.push(self.format_expr(name));
         }
         parts.push(self.format_col_constraint_elem(elem));
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 
@@ -978,6 +1040,7 @@ impl<'a> Formatter<'a> {
                 _ => parts.push(self.render_clause_inline(child)),
             }
         }
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 
@@ -990,6 +1053,7 @@ impl<'a> Formatter<'a> {
         if let Some(elem) = node.find_child("ConstraintElem") {
             parts.push(self.format_constraint_elem(elem));
         }
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 
@@ -1059,6 +1123,7 @@ impl<'a> Formatter<'a> {
             // Unnamed parentheses are re-emitted by the columnList, EXCLUDE
             // list, and CHECK expression arms above.
         }
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 
@@ -1528,6 +1593,7 @@ impl<'a> Formatter<'a> {
         for child in node.named_children(&mut cursor) {
             parts.push(self.format_expr(child));
         }
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 
@@ -1594,6 +1660,7 @@ impl<'a> Formatter<'a> {
         if let Some(alias) = node.find_child("for_portion_of_opt_alias") {
             parts.push(self.format_for_portion_of_opt_alias(alias));
         }
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 
@@ -1660,6 +1727,7 @@ impl<'a> Formatter<'a> {
                 _ => parts.push(self.format_expr(child)),
             }
         }
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 

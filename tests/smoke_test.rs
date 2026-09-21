@@ -777,3 +777,67 @@ CREATE FUNCTION g() RETURNS TEXT
         "CREATE FUNCTION f(x int) RETURNS INTEGER\n    LANGUAGE sql\n    RETURN x + 1;"
     );
 }
+
+// Table-level CREATE TABLE clauses were dropped: UNLOGGED/TEMP, the access
+// method, ON COMMIT, and the whole PARTITION OF / OF-type form, which
+// collapsed to an empty `CREATE TABLE t ()`.
+#[test]
+fn create_table_level_options_preserved() {
+    let cases = [
+        (
+            "CREATE UNLOGGED TABLE IF NOT EXISTS t (a int) ON COMMIT DROP",
+            "CREATE UNLOGGED TABLE IF NOT EXISTS t (\n    a INTEGER\n)\nON COMMIT DROP;",
+        ),
+        (
+            "CREATE TEMP TABLE t (a int) ON COMMIT DELETE ROWS",
+            "CREATE TEMP TABLE t (\n    a INTEGER\n)\nON COMMIT DELETE ROWS;",
+        ),
+        (
+            "CREATE TABLE t (a int) USING heap",
+            "CREATE TABLE t (\n    a INTEGER\n)\nUSING heap;",
+        ),
+        (
+            "CREATE TABLE t PARTITION OF u FOR VALUES FROM (1) TO (2)",
+            "CREATE TABLE t PARTITION OF u\nFOR VALUES FROM (1) TO (2);",
+        ),
+        (
+            "CREATE TABLE t PARTITION OF u DEFAULT",
+            "CREATE TABLE t PARTITION OF u\nDEFAULT;",
+        ),
+        (
+            "CREATE TABLE t PARTITION OF u FOR VALUES WITH (MODULUS 4, REMAINDER 0)",
+            "CREATE TABLE t PARTITION OF u\nFOR VALUES WITH (MODULUS 4, REMAINDER 0);",
+        ),
+        (
+            "CREATE TABLE t OF ty (PRIMARY KEY (a))",
+            "CREATE TABLE t OF ty (\n    PRIMARY KEY (a)\n);",
+        ),
+    ];
+    for (sql, expected) in cases {
+        let result = format(sql, Style::River).unwrap();
+        assert_eq!(result, expected, "\nInput: {sql}\nGot:\n{result}");
+    }
+}
+
+// No style may emit trailing whitespace. LIKE clauses and typed-table
+// elements previously rendered as untyped columns and were padded.
+#[test]
+fn no_trailing_whitespace_on_table_elements() {
+    let cases = [
+        "CREATE TABLE t (LIKE u INCLUDING ALL) INHERITS (v) TABLESPACE ts",
+        "CREATE TABLE t OF ty (PRIMARY KEY (a))",
+        "CREATE TABLE t (a int, EXCLUDE USING gist (a WITH =))",
+    ];
+    for &style in Style::ALL {
+        for sql in cases {
+            let result = format(sql, style).unwrap();
+            for line in result.lines() {
+                assert_eq!(
+                    line.trim_end(),
+                    line,
+                    "\nStyle: {style}\nInput: {sql}\nGot:\n{result}"
+                );
+            }
+        }
+    }
+}
