@@ -633,3 +633,251 @@ fn cast_multiword_type_names() {
         assert_eq!(result, expected, "\nInput: {sql}\nGot:\n{result}");
     }
 }
+
+// Column-level constraint clauses were dropped or mangled: COLLATE, the
+// ConstraintAttr attributes, REFERENCES key actions, IDENTITY sequence
+// options, the generated-expression parentheses, and NULLS NOT DISTINCT.
+#[test]
+fn column_constraint_clauses_preserved() {
+    let cases = [
+        (
+            "CREATE TABLE t (b text COLLATE \"C\" NOT NULL)",
+            "CREATE TABLE t (\n    b TEXT COLLATE \"C\" NOT NULL\n);",
+        ),
+        (
+            "CREATE TABLE t (a int REFERENCES u (id) ON DELETE SET NULL (a) ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED)",
+            "CREATE TABLE t (\n    a INTEGER REFERENCES u (id) ON DELETE SET NULL (a) ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED\n);",
+        ),
+        (
+            "CREATE TABLE t (a int GENERATED ALWAYS AS IDENTITY (START WITH 1 INCREMENT BY 2))",
+            "CREATE TABLE t (\n    a INTEGER GENERATED ALWAYS AS IDENTITY (START WITH 1 INCREMENT BY 2)\n);",
+        ),
+        (
+            "CREATE TABLE t (a int GENERATED ALWAYS AS (b + 1) STORED)",
+            "CREATE TABLE t (\n    a INTEGER GENERATED ALWAYS AS (b + 1) STORED\n);",
+        ),
+        (
+            "CREATE TABLE t (a int UNIQUE NULLS NOT DISTINCT)",
+            "CREATE TABLE t (\n    a INTEGER UNIQUE NULLS NOT DISTINCT\n);",
+        ),
+        (
+            "CREATE TABLE t (a int CHECK (a > 0) NO INHERIT)",
+            "CREATE TABLE t (\n    a INTEGER CHECK (a > 0) NO INHERIT\n);",
+        ),
+    ];
+    for (sql, expected) in cases {
+        let result = format(sql, Style::River).unwrap();
+        assert_eq!(result, expected, "\nInput: {sql}\nGot:\n{result}");
+    }
+}
+
+// Table-level constraint bodies were dropped or emitted as invalid SQL:
+// EXCLUDE lost its access method, operator list, and parentheses; WITHOUT
+// OVERLAPS and PERIOD were truncated or moved outside the key parentheses.
+#[test]
+fn table_constraint_clauses_preserved() {
+    let cases = [
+        (
+            "CREATE TABLE t (a int, EXCLUDE USING gist (a WITH =) WHERE (a > 0))",
+            "CREATE TABLE t (\n    a INTEGER,\n      EXCLUDE USING gist (a WITH =) WHERE (a > 0)\n);",
+        ),
+        (
+            "CREATE TABLE t (a int, b int, UNIQUE NULLS NOT DISTINCT (a, b) INCLUDE (b))",
+            "CREATE TABLE t (\n    a INTEGER,\n    b INTEGER,\n      UNIQUE NULLS NOT DISTINCT (a, b) INCLUDE (b)\n);",
+        ),
+        (
+            "CREATE TABLE t (a int, FOREIGN KEY (a) REFERENCES u (id) ON DELETE CASCADE DEFERRABLE)",
+            "CREATE TABLE t (\n    a INTEGER,\n      FOREIGN KEY (a) REFERENCES u (id) ON DELETE CASCADE DEFERRABLE\n);",
+        ),
+    ];
+    for (sql, expected) in cases {
+        let result = format(sql, Style::River).unwrap();
+        assert_eq!(result, expected, "\nInput: {sql}\nGot:\n{result}");
+    }
+
+    // WITHOUT OVERLAPS and PERIOD belong inside the key's parentheses. River
+    // style hoists PRIMARY KEY above the columns.
+    let sql = "CREATE TABLE v (id int, valid_at daterange, product_no int, \
+               PRIMARY KEY (id, valid_at WITHOUT OVERLAPS), \
+               FOREIGN KEY (product_no, PERIOD valid_at) REFERENCES p (product_no, PERIOD valid_at))";
+    let result = format(sql, Style::River).unwrap();
+    assert!(
+        result.contains("PRIMARY KEY (id, valid_at WITHOUT OVERLAPS)"),
+        "\nGot:\n{result}"
+    );
+    assert!(
+        result.contains(
+            "FOREIGN KEY (product_no, PERIOD valid_at) REFERENCES p (product_no, PERIOD valid_at)"
+        ),
+        "\nGot:\n{result}"
+    );
+}
+
+// Every CREATE FUNCTION option except LANGUAGE and AS was silently dropped,
+// along with OR REPLACE, RETURNS TABLE, and SQL-standard routine bodies.
+#[test]
+fn create_function_options_preserved() {
+    let sql = "CREATE FUNCTION f(a int DEFAULT 1) RETURNS TABLE (x int, y text) \
+               LANGUAGE sql STRICT SECURITY DEFINER PARALLEL SAFE COST 100 ROWS 10 \
+               SET search_path TO 'public' AS $$ SELECT 1 $$";
+    assert_eq!(
+        format(sql, Style::River).unwrap(),
+        "\
+CREATE FUNCTION f(a int DEFAULT 1) RETURNS TABLE (x INTEGER, y TEXT)
+    LANGUAGE sql
+    STRICT
+    SECURITY DEFINER
+    PARALLEL SAFE
+    COST 100
+    ROWS 10
+    SET search_path TO 'public'
+    AS $$
+ SELECT 1
+$$;"
+    );
+
+    let replace = "CREATE OR REPLACE FUNCTION f() RETURNS int LANGUAGE sql \
+                   IMMUTABLE LEAKPROOF RETURNS NULL ON NULL INPUT AS $$ SELECT 1 $$";
+    let result = format(replace, Style::River).unwrap();
+    assert!(
+        result.starts_with("CREATE OR REPLACE FUNCTION"),
+        "\nGot:\n{result}"
+    );
+    for opt in ["IMMUTABLE", "LEAKPROOF", "RETURNS NULL ON NULL INPUT"] {
+        assert!(result.contains(opt), "missing {opt}\nGot:\n{result}");
+    }
+}
+
+// SQL-standard routine bodies: BEGIN ATOMIC blocks format their statements
+// per style, and RETURN bodies are kept.
+#[test]
+fn create_function_routine_body_preserved() {
+    assert_eq!(
+        format(
+            "CREATE FUNCTION g() RETURNS text LANGUAGE sql BEGIN ATOMIC SELECT note FROM c WHERE color = 1; END",
+            Style::River
+        )
+        .unwrap(),
+        "\
+CREATE FUNCTION g() RETURNS TEXT
+    LANGUAGE sql
+    BEGIN ATOMIC
+        SELECT note
+          FROM c
+         WHERE color = 1;
+    END;"
+    );
+
+    assert_eq!(
+        format(
+            "CREATE FUNCTION f(x int) RETURNS int LANGUAGE sql RETURN x + 1",
+            Style::River
+        )
+        .unwrap(),
+        "CREATE FUNCTION f(x int) RETURNS INTEGER\n    LANGUAGE sql\n    RETURN x + 1;"
+    );
+}
+
+// Table-level CREATE TABLE clauses were dropped: UNLOGGED/TEMP, the access
+// method, ON COMMIT, and the whole PARTITION OF / OF-type form, which
+// collapsed to an empty `CREATE TABLE t ()`.
+#[test]
+fn create_table_level_options_preserved() {
+    let cases = [
+        (
+            "CREATE UNLOGGED TABLE IF NOT EXISTS t (a int) ON COMMIT DROP",
+            "CREATE UNLOGGED TABLE IF NOT EXISTS t (\n    a INTEGER\n)\nON COMMIT DROP;",
+        ),
+        (
+            "CREATE TEMP TABLE t (a int) ON COMMIT DELETE ROWS",
+            "CREATE TEMP TABLE t (\n    a INTEGER\n)\nON COMMIT DELETE ROWS;",
+        ),
+        (
+            "CREATE TABLE t (a int) USING heap",
+            "CREATE TABLE t (\n    a INTEGER\n)\nUSING heap;",
+        ),
+        (
+            "CREATE TABLE t PARTITION OF u FOR VALUES FROM (1) TO (2)",
+            "CREATE TABLE t PARTITION OF u\nFOR VALUES FROM (1) TO (2);",
+        ),
+        (
+            "CREATE TABLE t PARTITION OF u DEFAULT",
+            "CREATE TABLE t PARTITION OF u\nDEFAULT;",
+        ),
+        (
+            "CREATE TABLE t PARTITION OF u FOR VALUES WITH (MODULUS 4, REMAINDER 0)",
+            "CREATE TABLE t PARTITION OF u\nFOR VALUES WITH (MODULUS 4, REMAINDER 0);",
+        ),
+        (
+            "CREATE TABLE t OF ty (PRIMARY KEY (a))",
+            "CREATE TABLE t OF ty (\n    PRIMARY KEY (a)\n);",
+        ),
+    ];
+    for (sql, expected) in cases {
+        let result = format(sql, Style::River).unwrap();
+        assert_eq!(result, expected, "\nInput: {sql}\nGot:\n{result}");
+    }
+}
+
+// No style may emit trailing whitespace. LIKE clauses and typed-table
+// elements previously rendered as untyped columns and were padded.
+#[test]
+fn no_trailing_whitespace_on_table_elements() {
+    let cases = [
+        "CREATE TABLE t (LIKE u INCLUDING ALL) INHERITS (v) TABLESPACE ts",
+        "CREATE TABLE t OF ty (PRIMARY KEY (a))",
+        "CREATE TABLE t (a int, EXCLUDE USING gist (a WITH =))",
+        // dbt separates SELECT clauses with a blank line; indenting it into
+        // a routine body must leave it genuinely blank.
+        "CREATE FUNCTION g() RETURNS text LANGUAGE sql BEGIN ATOMIC SELECT a FROM c; END",
+    ];
+    for &style in Style::ALL {
+        for sql in cases {
+            let result = format(sql, style).unwrap();
+            for line in result.lines() {
+                assert_eq!(
+                    line.trim_end(),
+                    line,
+                    "\nStyle: {style}\nInput: {sql}\nGot:\n{result}"
+                );
+            }
+        }
+    }
+}
+
+// Function options and routine bodies must follow the style's indent width
+// rather than a hardcoded four spaces, and typed-table elements must be
+// keyword-cased rather than echoed as raw source.
+#[test]
+fn function_and_typed_table_respect_style() {
+    // GitLab indents with two spaces.
+    assert_eq!(
+        format(
+            "CREATE FUNCTION g() RETURNS text LANGUAGE sql STRICT BEGIN ATOMIC SELECT a FROM c; END",
+            Style::Gitlab
+        )
+        .unwrap(),
+        "\
+CREATE FUNCTION g() RETURNS TEXT
+  LANGUAGE sql
+  STRICT
+  BEGIN ATOMIC
+    SELECT a
+    FROM c;
+  END;"
+    );
+
+    // dbt lowercases keywords, including inside typed-table elements.
+    assert_eq!(
+        format(
+            "CREATE TABLE t OF ty (PRIMARY KEY (a), b WITH OPTIONS NOT NULL)",
+            Style::Dbt
+        )
+        .unwrap(),
+        "\
+create table t of ty (
+    primary key (a),
+    b with options not null
+);"
+    );
+}
