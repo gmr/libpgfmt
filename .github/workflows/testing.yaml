@@ -13,7 +13,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable, nightly]
+        # "1.96" is the rust-version declared in Cargo.toml: CI must fail
+        # if the crate stops building on the MSRV it advertises.
+        rust: ["1.96", stable, nightly]
 
     steps:
       - name: Checkout repository

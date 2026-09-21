@@ -151,7 +151,7 @@ Unsupported statements are passed through with normalized whitespace.
 
 ## Minimum Rust version
 
-Rust 1.88 or later (edition 2024, let-chains).
+Rust 1.96 or later (edition 2024, let-chains).
 
 ## License
 
