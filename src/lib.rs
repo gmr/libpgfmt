@@ -183,16 +183,30 @@ fn has_structural_error(root: &tree_sitter::Node) -> bool {
         // No valid statements at all — this is genuinely broken input.
         return true;
     }
+    // Junk outside every statement — a stray leading, trailing, or
+    // interleaved token — parses as an ERROR node directly under the root,
+    // as a sibling of the statements. Its text belongs to no statement, so
+    // nothing will ever render it and formatting would silently discard it.
+    // Reject regardless of size: the size threshold below only makes sense
+    // for errors nested inside a statement, whose text is still emitted.
+    let mut cursor = root.walk();
+    if root
+        .children(&mut cursor)
+        .any(|c| c.is_error() || c.is_missing())
+    {
+        return true;
+    }
     // At least one statement parsed, but a sibling statement may still be
     // broken (tree-sitter emits an ERROR/MISSING node rather than a
-    // toplevel_stmt for it). Small ERROR leaf nodes (< 5 bytes, e.g. decimal
-    // fractions) are grammar limitations for otherwise-valid SQL and are
-    // tolerated; a MISSING node or a substantial ERROR node signals a
-    // genuinely unparseable statement that must not be silently dropped.
+    // toplevel_stmt for it). A MISSING node or a substantial ERROR node
+    // signals a genuinely unparseable statement that must not be silently
+    // dropped.
     has_significant_error(root)
 }
 
-/// Recursively check for a MISSING node or a non-trivial ERROR node.
+/// Recursively check for a MISSING node or a non-trivial ERROR node nested
+/// inside a statement. Short ERROR leaves are tolerated: their text is still
+/// rendered as part of the surrounding statement, so nothing is lost.
 fn has_significant_error(node: &tree_sitter::Node) -> bool {
     if node.is_missing() || (node.is_error() && node.byte_range().len() >= 5) {
         return true;

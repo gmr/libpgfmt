@@ -881,3 +881,39 @@ create table t of ty (
 );"
     );
 }
+// Regression for https://github.com/gmr/libpgfmt/issues/45: a stray token
+// outside any statement parses as a short ERROR node at the root, which the
+// size threshold tolerated and formatting then discarded. Junk before,
+// after, or between statements must error rather than vanish.
+#[test]
+fn junk_outside_statements_errors_instead_of_dropping() {
+    let cases = [
+        "1 SELECT random();",
+        "x SELECT random();",
+        "!!! SELECT 1;",
+        "SELECT random() 1;",
+        "SELECT 1; 2 SELECT 2;",
+    ];
+    for sql in cases {
+        let result = format(sql, Style::River);
+        assert!(
+            matches!(result, Err(FormatError::Syntax(_))),
+            "expected Err(FormatError::Syntax(..)) for {sql:?}, got {result:?}"
+        );
+    }
+
+    // Valid input is unaffected, including the decimal literals the size
+    // threshold was originally added for.
+    let valid = [
+        ("SELECT random();", "SELECT random();"),
+        ("SELECT 800.00;", "SELECT 800.00;"),
+        ("SELECT 1; SELECT 2;", "SELECT 1;\n\nSELECT 2;"),
+    ];
+    for (sql, expected) in valid {
+        assert_eq!(
+            format(sql, Style::River).unwrap(),
+            expected,
+            "\nInput: {sql}"
+        );
+    }
+}
