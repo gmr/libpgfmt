@@ -1622,7 +1622,7 @@ impl<'a> Formatter<'a> {
 
     // ── WITH / CTE formatting ───────────────────────────────────────────
 
-    fn format_with_clause_river_inner(
+    pub(crate) fn format_with_clause_river_inner(
         &self,
         node: Node<'a>,
         river_width: usize,
@@ -1686,7 +1686,7 @@ impl<'a> Formatter<'a> {
         String::new()
     }
 
-    fn format_with_clause_left(&self, node: Node<'a>) -> String {
+    pub(crate) fn format_with_clause_left(&self, node: Node<'a>) -> String {
         let mut lines = Vec::new();
         let indent = self.config.indent;
         let blank_in_ctes = self.config.blank_lines_in_ctes;
