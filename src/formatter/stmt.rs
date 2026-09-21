@@ -61,6 +61,12 @@ impl<'a> Formatter<'a> {
     pub(crate) fn format_insert_stmt(&self, node: Node<'a>) -> String {
         let mut parts = Vec::new();
 
+        // River aligns the CTE to the INSERT INTO keyword pair, the way the
+        // VALUES clause below aligns to it.
+        if let Some(with) = self.dml_with_clause(node, self.kw_pair("INSERT", "INTO").len()) {
+            parts.push(with);
+        }
+
         // INSERT INTO target.
         let target = node
             .find_child("insert_target")
@@ -259,6 +265,9 @@ impl<'a> Formatter<'a> {
             }
             let width = keywords.iter().map(|k| k.len()).max().unwrap_or(6);
 
+            if let Some(with) = self.dml_with_clause(node, width) {
+                lines.push(with);
+            }
             lines.push(self.river_line(&self.kw("UPDATE"), &table, width));
 
             // SET clause.
@@ -313,6 +322,9 @@ impl<'a> Formatter<'a> {
                 lines.push(self.river_line(&self.kw("RETURNING"), &text, width));
             }
         } else {
+            if let Some(with) = self.dml_with_clause(node, 0) {
+                lines.push(with);
+            }
             lines.push(format!("{} {table}", self.kw("UPDATE")));
 
             // SET clause.
@@ -456,11 +468,8 @@ impl<'a> Formatter<'a> {
             let width = keywords.iter().map(|k| k.len()).max().unwrap_or(0);
             let content_col = width + 1;
 
-            if let Some(with) = node
-                .find_child("opt_with_clause")
-                .and_then(|w| w.find_child("with_clause"))
-            {
-                lines.push(self.format_with_clause_river_inner(with, width, true));
+            if let Some(with) = self.dml_with_clause(node, width) {
+                lines.push(with);
             }
             lines.push(self.river_line(&merge_kw, &target, width));
             lines.push(self.river_line(&self.kw("USING"), &source, width));
@@ -486,11 +495,8 @@ impl<'a> Formatter<'a> {
             }
         } else {
             let indent = self.config.indent;
-            if let Some(with) = node
-                .find_child("opt_with_clause")
-                .and_then(|w| w.find_child("with_clause"))
-            {
-                lines.push(self.format_with_clause_left(with));
+            if let Some(with) = self.dml_with_clause(node, 0) {
+                lines.push(with);
             }
             lines.push(format!("{} {target}", self.kw_pair("MERGE", "INTO")));
             lines.push(format!("{} {source}", self.kw("USING")));
@@ -634,6 +640,9 @@ impl<'a> Formatter<'a> {
             }
             let width = keywords.iter().map(|k| k.len()).max().unwrap_or(6);
 
+            if let Some(with) = self.dml_with_clause(node, width) {
+                lines.push(with);
+            }
             lines.push(delete_kw);
             lines.push(self.river_line(&self.kw("FROM"), &table, width));
 
@@ -655,6 +664,9 @@ impl<'a> Formatter<'a> {
                 lines.push(self.river_line(&self.kw("RETURNING"), &text, width));
             }
         } else {
+            if let Some(with) = self.dml_with_clause(node, 0) {
+                lines.push(with);
+            }
             lines.push(format!("{} {} {table}", self.kw("DELETE"), self.kw("FROM")));
 
             // USING clause.
@@ -1814,6 +1826,22 @@ impl<'a> Formatter<'a> {
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
+
+    /// Render the leading `WITH ...` clause of a DML statement, if it has one.
+    ///
+    /// `opt_with_clause` wraps the `with_clause` that the shared helpers
+    /// expect; passing the outer node yields nothing, which is how INSERT,
+    /// UPDATE and DELETE came to discard their CTEs entirely.
+    fn dml_with_clause(&self, node: Node<'a>, river_width: usize) -> Option<String> {
+        let with = node
+            .find_child("opt_with_clause")?
+            .find_child("with_clause")?;
+        Some(if self.config.river {
+            self.format_with_clause_river_inner(with, river_width, true)
+        } else {
+            self.format_with_clause_left(with)
+        })
+    }
 
     /// Render a clause subtree inline: case keyword leaves, delegate real
     /// expressions to `format_expr`, and glue punctuation. Used as the
