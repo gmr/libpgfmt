@@ -276,7 +276,16 @@ impl<'a> Formatter<'a> {
         let mut lines = Vec::new();
 
         // Calculate river width from all keywords that will appear.
-        let keywords = self.collect_river_keywords(clauses);
+        let mut keywords = self.collect_river_keywords(clauses);
+        // Inside a CTE body the WITH keyword is river-aligned too, and
+        // `WITH RECURSIVE` is wider than any clause keyword, so it has to
+        // take part in the width or its CTE starts right of the river.
+        if min_width > 0
+            && let Some(with) = clauses.with_clause
+            && with.has_child("kw_recursive")
+        {
+            keywords.push(self.kw_pair("WITH", "RECURSIVE"));
+        }
         // Don't apply min_width to set operations (UNION/INTERSECT/EXCEPT)
         // as they format their own halves independently.
         let effective_min = if clauses.set_op.is_some() {
@@ -1629,6 +1638,13 @@ impl<'a> Formatter<'a> {
         river_align_with: bool,
     ) -> String {
         let mut lines = Vec::new();
+        // WITH RECURSIVE: the keyword belongs to the WITH clause, not the CTE,
+        // and dropping it makes a self-referencing CTE invalid SQL.
+        let with_kw = if node.has_child("kw_recursive") {
+            self.kw_pair("WITH", "RECURSIVE")
+        } else {
+            self.kw("WITH")
+        };
         if let Some(cte_list) = node.find_child("cte_list") {
             let ctes = flatten_list(cte_list, "cte_list");
             // When WITH is river-aligned, river_line handles continuation
@@ -1640,9 +1656,9 @@ impl<'a> Formatter<'a> {
                 let cte_text = self.format_cte_river(*cte, body_min_width);
                 if i == 0 {
                     if river_align_with {
-                        lines.push(self.river_line(&self.kw("WITH"), &cte_text, river_width));
+                        lines.push(self.river_line(&with_kw, &cte_text, river_width));
                     } else {
-                        lines.push(format!("{} {cte_text}", self.kw("WITH")));
+                        lines.push(format!("{with_kw} {cte_text}"));
                     }
                 } else {
                     lines.push(cte_text);
@@ -1690,13 +1706,18 @@ impl<'a> Formatter<'a> {
         let mut lines = Vec::new();
         let indent = self.config.indent;
         let blank_in_ctes = self.config.blank_lines_in_ctes;
+        let with_kw = if node.has_child("kw_recursive") {
+            self.kw_pair("WITH", "RECURSIVE")
+        } else {
+            self.kw("WITH")
+        };
 
         if let Some(cte_list) = node.find_child("cte_list") {
             let ctes = flatten_list(cte_list, "cte_list");
 
             if self.config.blank_lines_between_clauses {
                 // dbt style: with\n\nname as (\n...)
-                lines.push(format!("{}\n", self.kw("with")));
+                lines.push(format!("{with_kw}\n"));
             }
 
             for (i, cte) in ctes.iter().enumerate() {
@@ -1724,7 +1745,7 @@ impl<'a> Formatter<'a> {
                 } else {
                     let as_line = format!("{name} {} (", self.kw("AS"));
                     if i == 0 && !self.config.blank_lines_between_clauses {
-                        format!("{} {as_line}", self.kw("WITH"))
+                        format!("{with_kw} {as_line}")
                     } else {
                         as_line
                     }

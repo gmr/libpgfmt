@@ -428,7 +428,14 @@ impl<'a> Formatter<'a> {
     /// Render a `WITH` clause: each CTE as `name AS ( <body at depth+1> )`,
     /// with subsequent CTEs continuing on the closing-paren line.
     fn pgdump_with(&self, w: Node<'a>, depth: usize) -> String {
-        let mut s = format!("{}WITH ", " ".repeat(STEP * depth + 1));
+        // ruleutils emits `WITH RECURSIVE` when the clause carries it; dropping
+        // the keyword makes a self-referencing CTE invalid SQL.
+        let recursive = if w.has_child("kw_recursive") {
+            "RECURSIVE "
+        } else {
+            ""
+        };
+        let mut s = format!("{}WITH {recursive}", " ".repeat(STEP * depth + 1));
         let close = " ".repeat(STEP * (depth + 1));
         let Some(list) = w.find_child("cte_list") else {
             return s;

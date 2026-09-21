@@ -638,3 +638,117 @@ fn zero_arg_keyword_functions() {
         "SELECT CURRENT_USER;"
     );
 }
+
+// Regression for https://github.com/gmr/libpgfmt/issues/51: INSERT, UPDATE
+// and DELETE never read opt_with_clause, so a leading WITH was discarded and
+// the output referenced a CTE that no longer existed — invalid SQL, returned
+// as Ok.
+#[test]
+fn dml_with_clause_preserved() {
+    let cases = [
+        "WITH c AS (SELECT 1 AS id) INSERT INTO t SELECT id FROM c",
+        "WITH c AS (SELECT 1 AS id) UPDATE t SET a = 1 FROM c WHERE t.id = c.id",
+        "WITH c AS (SELECT 1 AS id) DELETE FROM t USING c WHERE t.id = c.id",
+        "WITH c AS (SELECT 1 AS id) MERGE INTO t USING c ON t.id = c.id WHEN MATCHED THEN DELETE",
+        "WITH c AS (SELECT 1 AS id) SELECT * FROM c",
+    ];
+    for &style in Style::ALL {
+        for sql in cases {
+            let result = format(sql, style).unwrap();
+            let upper = result.to_uppercase();
+            // dbt puts WITH on its own line, so check the parts rather than
+            // the contiguous phrase.
+            assert!(
+                upper.contains("WITH") && upper.contains("C AS ("),
+                "CTE dropped\nStyle: {style}\nInput: {sql}\nGot:\n{result}"
+            );
+            // The formatted statement must still parse.
+            format(&result, style).unwrap();
+        }
+    }
+
+    assert_eq!(
+        format(
+            "WITH c AS (SELECT 1 AS id) UPDATE t SET a = 1 FROM c WHERE t.id = c.id",
+            Style::River
+        )
+        .unwrap(),
+        "  WITH c AS (\n       SELECT 1 AS id\n       )\nUPDATE t\n   SET a = 1\n  FROM c\n WHERE t.id = c.id;"
+    );
+}
+
+// WITH RECURSIVE dropped its RECURSIVE keyword in every style, including for
+// SELECT. A self-referencing CTE is invalid SQL without it.
+#[test]
+fn with_recursive_keyword_preserved() {
+    let cases = [
+        "WITH RECURSIVE c AS (SELECT 1 AS id) SELECT * FROM c",
+        "WITH RECURSIVE c AS (SELECT 1 AS id) UPDATE t SET a = 1 FROM c",
+        "WITH RECURSIVE c AS (SELECT 1 AS id) DELETE FROM t USING c",
+        "WITH RECURSIVE c AS (SELECT 1 AS id) INSERT INTO t SELECT id FROM c",
+    ];
+    for &style in Style::ALL {
+        for sql in cases {
+            let result = format(sql, style).unwrap();
+            assert!(
+                result.to_uppercase().contains("WITH RECURSIVE"),
+                "RECURSIVE dropped\nStyle: {style}\nInput: {sql}\nGot:\n{result}"
+            );
+        }
+    }
+
+    // A plain WITH must not gain the keyword.
+    let plain = format("WITH c AS (SELECT 1 AS id) SELECT * FROM c", Style::River).unwrap();
+    assert!(
+        !plain.to_uppercase().contains("RECURSIVE"),
+        "\nGot:\n{plain}"
+    );
+}
+
+// The CTE is rendered before INSERT but must not become `parts[0]`: the
+// column-list, OVERRIDING and DEFAULT VALUES branches all rewrite the INSERT
+// header in place, and river computes the VALUES width from it.
+#[test]
+fn insert_column_list_with_cte() {
+    for &style in Style::ALL {
+        let result = format(
+            "WITH c AS (SELECT 1 AS id) INSERT INTO t (id) SELECT id FROM c",
+            style,
+        )
+        .unwrap();
+        assert!(
+            result.to_uppercase().contains("INSERT INTO T (ID)"),
+            "column list detached from INSERT\nStyle: {style}\nGot:\n{result}"
+        );
+        format(&result, style).unwrap();
+    }
+
+    assert_eq!(
+        format(
+            "WITH c AS (SELECT 1 AS id) INSERT INTO t (id) VALUES (1), (2)",
+            Style::River
+        )
+        .unwrap(),
+        "       WITH c AS (\n            SELECT 1 AS id\n            )\nINSERT INTO t (id)\n     VALUES (1),\n            (2);"
+    );
+}
+
+// `WITH RECURSIVE` is wider than any clause keyword, so inside a CTE body it
+// has to join the river-width calculation or its CTE starts right of the
+// river the sibling clauses use.
+#[test]
+fn nested_recursive_cte_river_width() {
+    let result = format(
+        "WITH outer_cte AS (WITH RECURSIVE t AS (SELECT 1 AS n) SELECT n FROM t WHERE n > 2) SELECT * FROM outer_cte",
+        Style::River,
+    )
+    .unwrap();
+    for line in [
+        "WITH RECURSIVE t AS (",
+        "        SELECT n",
+        "          FROM t",
+    ] {
+        assert!(result.contains(line), "missing {line:?}\nGot:\n{result}");
+    }
+    format(&result, Style::River).unwrap();
+}
