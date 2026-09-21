@@ -33,8 +33,6 @@ impl<'a> Formatter<'a> {
                 "CreateTableAsStmt" | "CreateMatViewStmt" => {
                     self.format_create_table_as_stmt(child)
                 }
-                "CreatePropGraphStmt" => self.format_create_prop_graph_stmt(child),
-                "AlterPropGraphStmt" => self.format_alter_prop_graph_stmt(child),
                 _ => {
                     let text = self.text(child);
                     normalize_whitespace(text)
@@ -239,7 +237,10 @@ impl<'a> Formatter<'a> {
     // ── UPDATE ──────────────────────────────────────────────────────────
 
     pub(crate) fn format_update_stmt(&self, node: Node<'a>) -> String {
-        let table = self.format_update_delete_target(node);
+        let table = node
+            .find_child("relation_expr_opt_alias")
+            .map(|n| self.format_relation_expr_opt_alias(n))
+            .unwrap_or_default();
 
         let mut lines = Vec::new();
 
@@ -418,7 +419,10 @@ impl<'a> Formatter<'a> {
     // ── DELETE ──────────────────────────────────────────────────────────
 
     pub(crate) fn format_delete_stmt(&self, node: Node<'a>) -> String {
-        let table = self.format_update_delete_target(node);
+        let table = node
+            .find_child("relation_expr_opt_alias")
+            .map(|n| self.format_relation_expr_opt_alias(n))
+            .unwrap_or_default();
 
         let mut lines = Vec::new();
 
@@ -1659,67 +1663,6 @@ impl<'a> Formatter<'a> {
             }
         }
         out
-    }
-
-    /// Format the target table of an UPDATE/DELETE. Handles both the normal
-    /// `relation_expr_opt_alias` and the PG19 temporal `FOR PORTION OF` variant
-    /// (`relation_expr` + `for_portion_of_clause` [+ alias]).
-    fn format_update_delete_target(&self, node: Node<'a>) -> String {
-        if let Some(rel) = node.find_child("relation_expr_opt_alias") {
-            return self.format_relation_expr_opt_alias(rel);
-        }
-        let mut parts = Vec::new();
-        if let Some(rel) = node.find_child("relation_expr") {
-            parts.push(self.format_relation_expr(rel));
-        }
-        if let Some(fp) = node.find_child("for_portion_of_clause") {
-            parts.push(self.format_for_portion_of_clause(fp));
-        }
-        if let Some(alias) = node.find_child("for_portion_of_opt_alias") {
-            parts.push(self.format_for_portion_of_opt_alias(alias));
-        }
-        parts.retain(|p| !p.is_empty());
-        parts.join(" ")
-    }
-
-    /// Format a `FOR PORTION OF <column> {FROM <a> TO <b> | (<a>)}` clause (PG19).
-    fn format_for_portion_of_clause(&self, node: Node<'a>) -> String {
-        let col = node
-            .find_child("ColId")
-            .map(|n| self.format_expr(n))
-            .unwrap_or_default();
-        let mut cursor = node.walk();
-        let exprs: Vec<String> = node
-            .named_children(&mut cursor)
-            .filter(|c| c.kind() == "a_expr")
-            .map(|c| self.format_expr(c))
-            .collect();
-        let head = format!(
-            "{} {} {} {col}",
-            self.kw("FOR"),
-            self.kw("PORTION"),
-            self.kw("OF")
-        );
-        if node.has_child("kw_from") {
-            format!(
-                "{head} {} {} {} {}",
-                self.kw("FROM"),
-                exprs.first().cloned().unwrap_or_default(),
-                self.kw("TO"),
-                exprs.get(1).cloned().unwrap_or_default()
-            )
-        } else {
-            format!("{head} ({})", exprs.first().cloned().unwrap_or_default())
-        }
-    }
-
-    /// Format the optional alias following a `FOR PORTION OF` clause.
-    fn format_for_portion_of_opt_alias(&self, node: Node<'a>) -> String {
-        if let Some(colid) = node.find_child("ColId") {
-            format!("{} {}", self.kw("AS"), self.format_expr(colid))
-        } else {
-            self.text(node).to_string()
-        }
     }
 
     fn format_relation_expr_opt_alias(&self, node: Node<'a>) -> String {

@@ -221,9 +221,9 @@ checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 
 [[package]]
 name = "tree-sitter-postgres"
-version = "19.0.0-beta.2"
+version = "19.0.0-beta.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6291b3eae19ae4bb4ac3955a42fe7ed0505d62544073ebeea3156fdc1d57a8c"
+checksum = "25f1ee7179454a9a234511ceeec8f00df2ebabad2afd2379dab0dd5f3bbde107"
 dependencies = [
  "cc",
  "tree-sitter-language",
