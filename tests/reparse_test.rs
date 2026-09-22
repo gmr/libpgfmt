@@ -66,3 +66,49 @@ fn formatting_is_idempotent_in_every_style() {
         }
     }
 }
+
+/// Reparsing and idempotence both pass on output that is stable, valid and
+/// missing a clause. These modifiers were the ones silently dropped, so assert
+/// each survives verbatim wherever the fixture uses it.
+#[test]
+fn clause_modifiers_survive_in_every_style() {
+    const CLAUSES: &[&str] = &[
+        "IS JSON SCALAR",
+        "IS JSON OBJECT",
+        "IS JSON ARRAY",
+        "WITH UNIQUE KEYS",
+        "WITHOUT UNIQUE KEYS",
+        "TABLESAMPLE SYSTEM_ROWS(100)",
+        "TABLESAMPLE SYSTEM_TIME(1000)",
+    ];
+    // Whitespace, spacing before an argument list and keyword casing are all
+    // layout, so compare on a single-spaced upper-case form.
+    fn squeeze(s: &str) -> String {
+        s.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_uppercase()
+            .replace(" (", "(")
+    }
+
+    let mut seen = vec![false; CLAUSES.len()];
+    for sql in &statements() {
+        let input = squeeze(sql);
+        for (i, clause) in CLAUSES.iter().enumerate() {
+            if !input.contains(clause) {
+                continue;
+            }
+            seen[i] = true;
+            for &style in Style::ALL {
+                let out = squeeze(&format(sql, style).unwrap());
+                assert!(
+                    out.contains(clause),
+                    "\nStyle: {style}\nInput:\n{sql}\nDropped `{clause}` from:\n{out}"
+                );
+            }
+        }
+    }
+    for (i, clause) in CLAUSES.iter().enumerate() {
+        assert!(seen[i], "no fixture statement exercises `{clause}`");
+    }
+}

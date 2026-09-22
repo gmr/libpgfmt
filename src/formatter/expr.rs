@@ -1543,8 +1543,7 @@ impl<'a> Formatter<'a> {
     /// generic walk dropped, and a bare `DEFAULT` element was lost with them.
     fn format_implicit_row(&self, node: Node<'a>) -> String {
         let mut items = Vec::new();
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
+        for child in node.named_children_vec() {
             match child.kind() {
                 "expr_list" => {
                     let elems = flatten_list(child, "expr_list");

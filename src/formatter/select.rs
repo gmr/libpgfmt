@@ -4,6 +4,7 @@ use crate::style::Style;
 use tree_sitter::Node;
 
 use super::Formatter;
+use super::lexical;
 
 /// Collected clauses from a SELECT statement.
 pub(crate) struct SelectClauses<'a> {
@@ -1209,8 +1210,7 @@ impl<'a> Formatter<'a> {
             // NATURAL never takes an INNER qualifier.
             let rest = if let Some(jt) = join_type {
                 let mut parts = Vec::new();
-                let mut cursor = jt.walk();
-                for child in jt.named_children(&mut cursor) {
+                for child in jt.named_children_vec() {
                     match child.kind() {
                         "kw_left" => parts.push(self.kw("LEFT")),
                         "kw_right" => parts.push(self.kw("RIGHT")),
@@ -1916,26 +1916,25 @@ impl<'a> Formatter<'a> {
     }
 }
 
-/// For each newline in `content`, whether it falls inside a single-quoted
-/// string literal. Index `i` corresponds to the line following the i-th
-/// newline, matching the continuation lines `river_line` re-indents.
+/// For each newline in `content`, whether it falls inside a string literal.
+/// Index `i` corresponds to the line following the i-th newline, matching the
+/// continuation lines `river_line` re-indents.
+///
+/// Every PostgreSQL literal form counts, including `E'...'` escape strings and
+/// dollar-quoted strings: indenting inside one rewrites its value.
 fn newlines_inside_literal(content: &str) -> Vec<bool> {
     let mut out = Vec::new();
-    let mut in_quote = false;
     let chars: Vec<char> = content.chars().collect();
     let mut i = 0;
     while i < chars.len() {
-        match chars[i] {
-            '\'' => {
-                // A doubled quote inside a literal is an escaped quote.
-                if in_quote && i + 1 < chars.len() && chars[i + 1] == '\'' {
-                    i += 2;
-                    continue;
-                }
-                in_quote = !in_quote;
-            }
-            '\n' => out.push(in_quote),
-            _ => {}
+        if let Some((span, end)) = lexical::scan(&chars, i) {
+            let inside = span == lexical::Span::Literal;
+            out.extend(chars[i..end].iter().filter(|c| **c == '\n').map(|_| inside));
+            i = end;
+            continue;
+        }
+        if chars[i] == '\n' {
+            out.push(false);
         }
         i += 1;
     }

@@ -1,4 +1,5 @@
 mod expr;
+mod lexical;
 mod pgdump;
 mod plpgsql;
 mod select;

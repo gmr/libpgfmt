@@ -31,6 +31,7 @@
 
 use crate::error::FormatError;
 use crate::formatter::Formatter;
+use crate::formatter::lexical;
 use crate::formatter::select::SelectClauses;
 use crate::node_helpers::{NodeExt, flatten_list};
 use tree_sitter::Node;
@@ -568,36 +569,28 @@ impl<'a> Formatter<'a> {
     }
 }
 
-/// Collapse whitespace runs to a single space, with one exception: a run that
+/// Collapse whitespace runs to a single space, with two exceptions: a run that
 /// contains a newline and sits between two string constants is kept as a
-/// newline.
+/// newline, and so is the newline that terminates a `--` comment.
 ///
 /// PostgreSQL concatenates two string constants only when a line break
 /// separates them; on one line the adjacency is a syntax error. Collapsing
-/// that newline turns `SELECT 'foo'\n'bar'` into invalid SQL.
+/// that newline turns `SELECT 'foo'\n'bar'` into invalid SQL. Collapsing the
+/// newline after a `--` comment is worse: the comment then swallows the rest
+/// of the statement.
 fn collapse_ws_preserving_continuations(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
+    let mut after_line_comment = false;
     while i < chars.len() {
         let c = chars[i];
-        if c == '\'' {
-            // Copy the literal verbatim, including doubled quotes.
-            out.push(c);
-            i += 1;
-            while i < chars.len() {
-                out.push(chars[i]);
-                if chars[i] == '\'' {
-                    i += 1;
-                    if i < chars.len() && chars[i] == '\'' {
-                        out.push('\'');
-                        i += 1;
-                        continue;
-                    }
-                    break;
-                }
-                i += 1;
-            }
+        // String constants and comments are copied verbatim: their spacing is
+        // data in the one case and structure in the other.
+        if let Some((span, end)) = lexical::scan(&chars, i) {
+            out.extend(&chars[i..end]);
+            after_line_comment = span == lexical::Span::LineComment;
+            i = end;
             continue;
         }
         if c.is_whitespace() {
@@ -610,12 +603,18 @@ fn collapse_ws_preserving_continuations(text: &str) -> String {
             let between_literals =
                 saw_newline && out.ends_with('\'') && j < chars.len() && chars[j] == '\'';
             if !out.is_empty() && j < chars.len() {
-                out.push(if between_literals { '\n' } else { ' ' });
+                out.push(if between_literals || (saw_newline && after_line_comment) {
+                    '\n'
+                } else {
+                    ' '
+                });
             }
+            after_line_comment = false;
             i = j;
             continue;
         }
         out.push(c);
+        after_line_comment = false;
         i += 1;
     }
     out
