@@ -36,7 +36,7 @@ impl<'a> Formatter<'a> {
                 }
                 _ => {
                     let text = self.text(child);
-                    normalize_whitespace(text)
+                    normalize_whitespace_preserving_comments(text)
                 }
             };
             let trimmed = result.trim_end_matches(';');
@@ -210,9 +210,17 @@ impl<'a> Formatter<'a> {
             }
         }
 
+        // DO NOTHING | DO UPDATE SET ... | DO SELECT [FOR ...]. Treating every
+        // non-NOTHING form as DO UPDATE emitted `DO UPDATE SET` with an empty
+        // SET for the PG19 DO SELECT form, which does not parse.
         parts.push(self.kw("DO"));
         if node.has_child("kw_nothing") {
             parts.push(self.kw("NOTHING"));
+        } else if node.has_child("kw_select") {
+            parts.push(self.kw("SELECT"));
+            if let Some(lock) = node.find_child("opt_for_locking_strength") {
+                parts.push(self.render_clause_inline(lock));
+            }
         } else {
             parts.push(self.kw("UPDATE"));
             parts.push(self.kw("SET"));
@@ -222,11 +230,11 @@ impl<'a> Formatter<'a> {
                     clauses.iter().map(|c| self.format_set_clause(*c)).collect();
                 parts.push(formatted.join(", "));
             }
-            if let Some(where_c) = node.find_child("where_clause")
-                && let Some(expr) = where_c.find_child_any(&["a_expr", "c_expr"])
-            {
-                parts.push(format!("{} {}", self.kw("WHERE"), self.format_expr(expr)));
-            }
+        }
+        if let Some(where_c) = node.find_child("where_clause")
+            && let Some(expr) = where_c.find_child_any(&["a_expr", "c_expr"])
+        {
+            parts.push(format!("{} {}", self.kw("WHERE"), self.format_expr(expr)));
         }
 
         parts.retain(|p| !p.is_empty());
@@ -371,12 +379,20 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_set_clause(&self, node: Node<'a>) -> String {
-        let target = node
-            .find_child("set_target")
-            .map(|n| self.format_expr(n))
-            .unwrap_or_default();
         let value = node
             .find_child_any(&["a_expr", "c_expr"])
+            .map(|n| self.format_expr(n))
+            .unwrap_or_default();
+        // Multi-column form: SET (a, b, c) = (...). The columns live in a
+        // set_target_list, not a set_target, so looking only for the latter
+        // emitted `SET  = ...` and dropped every column name.
+        if let Some(list) = node.find_child("set_target_list") {
+            let items = flatten_list(list, "set_target_list");
+            let cols: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
+            return format!("({}) = {value}", cols.join(", "));
+        }
+        let target = node
+            .find_child("set_target")
             .map(|n| self.format_expr(n))
             .unwrap_or_default();
         format!("{target} = {value}")
@@ -1897,7 +1913,7 @@ impl<'a> Formatter<'a> {
         for child in node.named_children(&mut cursor) {
             match child.kind() {
                 "relation_expr" => parts.push(self.format_relation_expr(child)),
-                "opt_alias_clause" | "alias_clause" => {
+                "opt_alias_clause" | "alias_clause" | "func_alias_clause" => {
                     // alias_clause already includes the AS keyword.
                     let alias = self.format_expr(child);
                     if !alias.is_empty() {
@@ -2064,6 +2080,49 @@ fn reindent_body(s: &str, indent: &str) -> String {
 /// Collapse runs of whitespace to single spaces, but preserve whitespace
 /// inside single-quoted strings, double-quoted identifiers, and dollar-quoted
 /// strings so that literal content is not altered.
+/// Normalize whitespace, but keep the original line breaks when the statement
+/// contains a `--` line comment.
+///
+/// Collapsing newlines around a line comment folds everything after it into
+/// the comment, so a passed-through statement such as
+/// `EXECUTE PROCEDURE f(a, -- why\n b)` loses its tail and stops parsing.
+/// Each line is normalized on its own instead.
+pub(crate) fn normalize_whitespace_preserving_comments(s: &str) -> String {
+    if !has_line_comment(s) {
+        return normalize_whitespace(s);
+    }
+    s.lines()
+        .map(normalize_whitespace)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Whether the text has a `--` line comment outside any string literal.
+fn has_line_comment(s: &str) -> bool {
+    let bytes: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    let mut quote: Option<char> = None;
+    while i < bytes.len() {
+        let c = bytes[i];
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                }
+            }
+            None => {
+                if c == '\'' || c == '"' {
+                    quote = Some(c);
+                } else if c == '-' && i + 1 < bytes.len() && bytes[i + 1] == '-' {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 pub(crate) fn normalize_whitespace(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();

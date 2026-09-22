@@ -167,6 +167,7 @@ impl<'a> Formatter<'a> {
             "a_expr" | "b_expr" => self.format_a_expr(node),
             "a_expr_prec" => self.format_a_expr_prec(node),
             "c_expr" => self.format_c_expr(node),
+            "implicit_row" => self.format_implicit_row(node),
             "columnref" => self.format_columnref(node),
             "AexprConst" => self.format_const(node),
             "func_expr" | "func_application" => self.format_func(node),
@@ -199,7 +200,7 @@ impl<'a> Formatter<'a> {
             }
             "func_arg_expr" => self.format_first_named_child(node),
             "array_expr" => self.format_array_expr(node),
-            "opt_alias_clause" | "alias_clause" => self.format_alias(node),
+            "opt_alias_clause" | "alias_clause" | "func_alias_clause" => self.format_alias(node),
             "group_by_item" => self.format_first_named_child(node),
             "ERROR" => self.text(node).to_string(),
             _ if node.kind().starts_with("kw_") => self.format_keyword_node(node),
@@ -243,6 +244,13 @@ impl<'a> Formatter<'a> {
                     "kw_or" => parts.push(self.kw("OR")),
                     "kw_not" => parts.push(self.kw("NOT")),
                     "kw_is" => parts.push(self.kw("IS")),
+                    // IS JSON [SCALAR|OBJECT|ARRAY|VALUE] [WITH|WITHOUT UNIQUE
+                    // KEYS]. The modifiers are keyword leaves under this node
+                    // and the generic walk dropped them, leaving `IS JSON` or
+                    // a dangling `IS JSON WITH`.
+                    "json_predicate_type_constraint" | "json_key_uniqueness_constraint_opt" => {
+                        parts.push(self.render_clause_inline(child))
+                    }
                     "kw_null" => parts.push(self.kw("NULL")),
                     "kw_true" => parts.push(self.kw("TRUE")),
                     "kw_false" => parts.push(self.kw("FALSE")),
@@ -785,6 +793,20 @@ impl<'a> Formatter<'a> {
             return format!("{}()", self.kw(self.text(kw)));
         }
 
+        // EXTRACT(field FROM source): the source lives in extract_list, which
+        // the generic walk dropped, leaving `EXTRACT ( EPOCH )`.
+        if let Some(list) = subexpr.find_child("extract_list") {
+            let arg = list
+                .find_child("extract_arg")
+                .map(|a| self.kw(self.text(a)))
+                .unwrap_or_default();
+            let src = list
+                .find_child_any(&["a_expr", "c_expr", "b_expr"])
+                .map(|e| self.format_expr(e))
+                .unwrap_or_default();
+            return format!("{}({arg} {} {src})", self.kw("EXTRACT"), self.kw("FROM"));
+        }
+
         // Handle COALESCE, GREATEST, LEAST, NULLIF, etc.
         // These are function-like: KEYWORD(args)
         if let Some(expr_list) = subexpr.find_child("expr_list") {
@@ -919,9 +941,14 @@ impl<'a> Formatter<'a> {
                     inner.push(self.format_sort_clause_inline(child));
                 }
                 "kw_over" => {} // skip
+                // ROWS/RANGE/GROUPS BETWEEN ... EXCLUDE ... — a flat keyword
+                // clause. format_expr dropped the frame extent and left a bare
+                // ROWS or RANGE behind, which is a syntax error.
+                "opt_frame_clause" => inner.push(self.render_clause_inline(child)),
                 _ => inner.push(self.format_expr(child)),
             }
         }
+        inner.retain(|p| !p.is_empty());
         inner.join(" ")
     }
 
@@ -1446,6 +1473,11 @@ impl<'a> Formatter<'a> {
         {
             return self.format_alias(ac);
         }
+        if node.kind() == "func_alias_clause"
+            && let Some(ac) = node.find_child("alias_clause")
+        {
+            return self.format_alias(ac);
+        }
         let mut has_as = false;
         let mut parts = Vec::new();
         let mut cursor = node.walk();
@@ -1462,9 +1494,35 @@ impl<'a> Formatter<'a> {
                     }
                     parts.push(self.format_col_id(child));
                 }
+                // `AS t(a, b)` — a plain column alias list.
+                "name_list" => {
+                    let items = flatten_list(child, "name_list");
+                    let formatted: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
+                    let rendered = format!("({})", formatted.join(", "));
+                    match parts.last_mut() {
+                        Some(last) => last.push_str(&rendered),
+                        None => parts.push(rendered),
+                    }
+                }
+                // `AS t(col type, ...)` / `AS (col type, ...)` — a function
+                // call's column definition list. Without this the whole alias
+                // collapsed to a bare AS, which is not valid SQL.
+                "TableFuncElementList" => {
+                    let items = flatten_list(child, "TableFuncElementList");
+                    let formatted: Vec<_> = items
+                        .iter()
+                        .map(|i| self.render_clause_inline(*i))
+                        .collect();
+                    let rendered = format!("({})", formatted.join(", "));
+                    match parts.last_mut() {
+                        Some(last) if !last.ends_with(&self.kw("AS")) => last.push_str(&rendered),
+                        _ => parts.push(rendered),
+                    }
+                }
                 _ => parts.push(self.format_expr(child)),
             }
         }
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 
@@ -1480,6 +1538,25 @@ impl<'a> Formatter<'a> {
         self.text(node).to_string()
     }
 
+    /// Format a parenthesised row constructor, e.g. the right-hand side of
+    /// `SET (a, b) = (1, 2)`. Its parentheses are literal tokens that the
+    /// generic walk dropped, and a bare `DEFAULT` element was lost with them.
+    fn format_implicit_row(&self, node: Node<'a>) -> String {
+        let mut items = Vec::new();
+        for child in node.named_children_vec() {
+            match child.kind() {
+                "expr_list" => {
+                    let elems = flatten_list(child, "expr_list");
+                    items.extend(elems.iter().map(|e| self.format_expr(*e)));
+                }
+                _ if child.kind().starts_with("kw_") => items.push(self.kw(self.text(child))),
+                _ => items.push(self.format_expr(child)),
+            }
+        }
+        items.retain(|i| !i.is_empty());
+        format!("({})", items.join(", "))
+    }
+
     /// Format a table reference (for FROM clause), returning the table name with alias.
     pub(crate) fn format_table_ref(&self, node: Node<'a>) -> String {
         let mut parts = Vec::new();
@@ -1487,13 +1564,17 @@ impl<'a> Formatter<'a> {
         for child in node.named_children(&mut cursor) {
             match child.kind() {
                 "relation_expr" => parts.push(self.format_relation_expr(child)),
-                "opt_alias_clause" | "alias_clause" => {
+                "opt_alias_clause" | "alias_clause" | "func_alias_clause" => {
                     parts.push(self.format_alias(child));
                 }
                 "joined_table" => return self.text(child).to_string(), // handled elsewhere
+                // TABLESAMPLE method(args) [REPEATABLE (n)]: flat keyword and
+                // punctuation, which format_expr reduced to a bare TABLESAMPLE.
+                "tablesample_clause" => parts.push(self.render_clause_inline(child)),
                 _ => parts.push(self.format_expr(child)),
             }
         }
+        parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
 }
