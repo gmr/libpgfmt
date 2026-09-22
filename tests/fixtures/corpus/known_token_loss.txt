@@ -11,8 +11,6 @@
 13beaab7380bf501  drops: order by a
 14232e2a16d85fc2  drops: [ 4 ]
 17b7c77a26a8bb11  drops: with cascaded check option
-1a57537e0a64d74a  drops: ( manager_name , ) distance , employee_name
-21b4ece4930c76a0  drops: id link data ( , , , ) path
 2a84d9f893675a4a  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
 2d811e4982e3530b  drops: <>
 2dce8ac7d621b9e2  drops: ( c.name , c.supplier_id , c.price )
@@ -22,9 +20,6 @@
 3c575c83f95669a9  drops: with ( security_barrier )
 3cd2d3335b434771  drops: hour to minute
 3fd21b875a5c85aa  drops: ( v order by v desc )
-456f3cd8fad6da8e  drops: sub_part , ( part )
-45d22ed1c9f831ed  drops: id link data ( , , , ) depth
-489c13db31bc75fd  drops: ( ) n
 4dc429af639201e3  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4ddfba434e7ee0c1  drops: [ 1 : 2 ]
 4e84c0a09deba0de  drops: where current of c_films
@@ -33,8 +28,6 @@
 6031e25d1b0e22e6  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 628c948273a10f52  drops: union all n + 1 where n < 100 select ( n ) from t
 699860c58c5a0243  drops: limit 10000
-6d1a47ebc1e01d47  drops: id link data ( , , ) search depth first id set by ordercol
-6de4351632222e15  drops: id link data depth , , , ( , path , is_cycle )
 709eea1f241b4e90  drops: hour to minute
 71f57c93dcef83a7  drops: ( t. * , 42 )
 7dd9daf0099bc01e  drops: <>
@@ -45,14 +38,10 @@
 8917c72da6ee57ec  drops: into myrec
 8a2d5541685d80b8  drops: into films_recent
 8dcafae935966dce  drops: ?
-93b22e40aae57fff  drops: id link data ( , , )
 9b9de1a050c9c2b8  drops: <>
 9cacaf801690a75e  drops: hour to minute
 9e0486f07dfb893a  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
-9facaf9be78f7210  drops: id link data depth ( , , , )
 ac4548861c422ac8  drops: and this one - -
-ad1a34e61b606d82  drops: id link data depth ( , , , ) cycle id set is_cycle using path
-affd272dfd869431  drops: not materialized
 b157aea1efdc87ca  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 b5beba9cfeff07e3  drops: where current of curs1
 b969f5765f5dad8b  drops: [ ]

@@ -1714,14 +1714,44 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_cte_river(&self, node: Node<'a>, river_width: usize) -> String {
+        let body = self.format_cte_body(node, river_width);
+        let (header, trailer) = self.format_cte_header(node);
+
+        format!("{header}(\n{body}\n){trailer}")
+    }
+
+    /// The text before a CTE's body and the text after it.
+    ///
+    /// The header carries the name, the column list a recursive CTE needs to
+    /// declare, and the MATERIALIZED hint; the trailer carries the SEARCH and
+    /// CYCLE clauses. All of them change what the CTE means, so none may be
+    /// dropped -- see https://github.com/gmr/libpgfmt/issues/58.
+    fn format_cte_header(&self, node: Node<'a>) -> (String, String) {
         let name = node
             .find_child("name")
             .map(|n| self.format_expr(n))
             .unwrap_or_default();
+        let columns = node
+            .find_child("opt_name_list")
+            .map(|n| self.render_clause_inline(n))
+            .unwrap_or_default();
+        let materialized = node
+            .find_child("opt_materialized")
+            .map(|n| format!("{} ", self.render_clause_inline(n)))
+            .unwrap_or_default();
 
-        let body = self.format_cte_body(node, river_width);
+        let mut trailer = String::new();
+        for kind in ["opt_search_clause", "opt_cycle_clause"] {
+            if let Some(clause) = node.find_child(kind) {
+                trailer.push('\n');
+                trailer.push_str(&self.render_clause_inline(clause));
+            }
+        }
 
-        format!("{name} {} (\n{body}\n)", self.kw("AS"))
+        (
+            format!("{name}{columns} {} {materialized}", self.kw("AS")),
+            trailer,
+        )
     }
 
     /// Extract and format the body of a CTE, handling SELECT, INSERT, UPDATE,
@@ -1766,10 +1796,7 @@ impl<'a> Formatter<'a> {
             }
 
             for (i, cte) in ctes.iter().enumerate() {
-                let name = cte
-                    .find_child("name")
-                    .map(|n| self.format_expr(n))
-                    .unwrap_or_default();
+                let (header, trailer) = self.format_cte_header(*cte);
 
                 let body = self.format_cte_body(*cte, 0);
 
@@ -1786,9 +1813,9 @@ impl<'a> Formatter<'a> {
                     .join("\n");
 
                 let cte_prefix = if self.config.compact_ctes && i > 0 {
-                    format!("), {name} {} (", self.kw("AS"))
+                    format!("), {header}(")
                 } else {
-                    let as_line = format!("{name} {} (", self.kw("AS"));
+                    let as_line = format!("{header}(");
                     if i == 0 && !self.config.blank_lines_between_clauses {
                         format!("{with_kw} {as_line}")
                     } else {
@@ -1817,9 +1844,9 @@ impl<'a> Formatter<'a> {
                 if !self.config.compact_ctes {
                     let is_last = i == ctes.len() - 1;
                     lines.push(if is_last {
-                        ")".to_string()
+                        format!("){trailer}")
                     } else {
-                        "),".to_string()
+                        format!("){trailer},")
                     });
                 }
             }

@@ -1878,6 +1878,13 @@ impl<'a> Formatter<'a> {
             "a_expr" | "b_expr" | "c_expr" => return self.format_expr(node),
             "Typename" => return self.format_typename(node),
             "qualified_name" => return self.format_qualified_name(node),
+            // An identifier keeps the spelling it was written with. Many are
+            // unreserved keywords in the grammar -- a column named `data`
+            // parses as `ColId > unreserved_keyword > kw_data` -- and
+            // recursing would apply keyword casing to a name.
+            "ColId" | "ColLabel" | "attr_name" | "name" => {
+                return self.text(node).trim().to_string();
+            }
             _ => {}
         }
         let mut cursor = node.walk();
