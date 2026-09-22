@@ -4,7 +4,6 @@
 # dropped. Remove a line when the statement is fixed; the test fails if a
 # listed statement stops losing content, so this list cannot go stale.
 
-02fa545a4fb0cd05  drops: ...
 0e204671b17877d3  drops: 3 [ 3 ]
 0f5d2aefe1a0b324  drops: cast ( as )
 109898801ef1e75d  drops: ( year from logdate ( month from logdate ) )
@@ -20,16 +19,12 @@
 2f58e365c2514681  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 32b068fa73d2e8bd  drops: complex_col.r complex_col.i
 339f924f4db15318  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
-38dcd268c1223051  drops: ...
 3c575c83f95669a9  drops: with ( security_barrier )
 3cd2d3335b434771  drops: hour to minute
 3fd21b875a5c85aa  drops: ( v order by v desc )
-42ee3b22ea9c2bed  drops: ( )
 456f3cd8fad6da8e  drops: sub_part , ( part )
 45d22ed1c9f831ed  drops: id link data ( , , , ) depth
 489c13db31bc75fd  drops: ( ) n
-4aaf99de1ac631a2  drops: ( ... )
-4c11b0ceb89a008c  drops: ( ... )
 4dc429af639201e3  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4ddfba434e7ee0c1  drops: [ 1 : 2 ]
 4e84c0a09deba0de  drops: where current of c_films
@@ -56,7 +51,6 @@
 9e0486f07dfb893a  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
 9facaf9be78f7210  drops: id link data depth ( , , , )
 ac4548861c422ac8  drops: and this one - -
-ac9d5cbee24f8ecc  drops: ...
 ad1a34e61b606d82  drops: id link data depth ( , , , ) cycle id set is_cycle using path
 affd272dfd869431  drops: not materialized
 b157aea1efdc87ca  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
@@ -65,7 +59,6 @@ b969f5765f5dad8b  drops: [ ]
 bf59ab5c10593c42  drops: with local check option
 c0370af45f1e65a4  drops: end$$
 c06277f560204556  drops: - -
-c32381cd0febdc53  drops: ( ... )
 c406de5853f604d0  drops: ( k , v order by v )
 c443608aa60a0d8c  drops: id link data ( ( t.f1 t.f2 ) , , , ( t.f1 , t.f2 ) , ) path
 c78ba85af91a4f0b  drops: using ~ < ~
@@ -73,7 +66,6 @@ ccd523c059a78328  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ 
 d4dca78e451567da  drops: ( v order by v desc )
 d8765d8dffda59ef  drops: limit 5000
 d9a78e7b01c8e0a7  drops: with ordinality
-dc346ab9e59847d6  drops: ... ,
 ddcc800717b0c3fa  drops: <>
 e026fa0c46c28449  drops: id link data depth ( g.f1 g.f2 , , , , ( g.f1 , g.f2 ) ( ) , path (...
 e59fc5a348a37823  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
