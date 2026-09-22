@@ -25,10 +25,12 @@ pub(crate) enum Span {
 pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
     match chars.get(i)? {
         '\'' => Some((Span::Literal, quoted_end(chars, i + 1, false))),
-        'E' | 'e' if chars.get(i + 1) == Some(&'\'') => {
+        'E' | 'e' if chars.get(i + 1) == Some(&'\'') && !continues_identifier(chars, i) => {
             Some((Span::Literal, quoted_end(chars, i + 2, true)))
         }
-        '$' => dollar_end(chars, i).map(|end| (Span::Literal, end)),
+        '$' if !continues_identifier(chars, i) => {
+            dollar_end(chars, i).map(|end| (Span::Literal, end))
+        }
         '-' if chars.get(i + 1) == Some(&'-') => {
             let end = chars[i..]
                 .iter()
@@ -45,6 +47,17 @@ pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
         }
         _ => None,
     }
+}
+
+/// Whether `chars[i]` continues the identifier before it, in which case no
+/// literal can start there.
+///
+/// PostgreSQL allows `$` inside an unquoted identifier, and requires
+/// whitespace between an identifier and a following dollar quote — so the `$`
+/// in `foo$tag$` opens no literal. An `E` or `e` directly after an identifier
+/// character is likewise part of that identifier, not an escape-string prefix.
+fn continues_identifier(chars: &[char], i: usize) -> bool {
+    i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '_' || chars[i - 1] == '$')
 }
 
 /// End of a single-quoted constant whose body starts at `i`. A doubled quote
@@ -112,6 +125,19 @@ mod tests {
         assert_eq!(end_of("$$a b$$ x"), Some((Span::Literal, 7)));
         assert_eq!(end_of("$tag$a$$b$tag$ x"), Some((Span::Literal, 14)));
         assert_eq!(end_of("$1 + 2"), None);
+    }
+
+    #[test]
+    fn no_literal_starts_inside_an_identifier() {
+        // `$` and `E` are both legal inside an unquoted identifier.
+        for (text, i) in [
+            ("foo$tag$ + 1\nFROM bar$tag$", 3),
+            ("foo$$tag$ + 1\nFROM bar$$tag$", 4),
+            (r"ae'a\'b' + 1", 1),
+        ] {
+            let chars: Vec<char> = text.chars().collect();
+            assert_eq!(scan(&chars, i), None, "{text} at {i}");
+        }
     }
 
     #[test]
