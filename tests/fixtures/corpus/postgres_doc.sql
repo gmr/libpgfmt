@@ -343,28 +343,6 @@ CREATE TABLE postgres_log
 -- config.sgml
 COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
 ;;
--- contrib-spi.sgml
-CREATE TRIGGER mytrigger
-AFTER INSERT OR UPDATE ON referencing_table
-FOR EACH ROW EXECUTE PROCEDURE
-check_primary_key (
-    'column A', 'column B',         -- referencing table columns
-    'myschema."referenced table"',  -- referenced table
-    '"column A"', '"column B"'      -- referenced table columns
-);
-;;
--- contrib-spi.sgml
-CREATE TRIGGER mytrigger
-AFTER DELETE OR UPDATE ON referenced_table
-FOR EACH ROW EXECUTE PROCEDURE
-check_foreign_key (
-    1,                              -- number of referencing tables
-    'cascade',                      -- action
-    'column A', 'column B',         -- referenced table columns
-    'myschema."referencing table"', -- referencing table
-    '"column A"', '"column B"'      -- referencing table columns
-);
-;;
 -- cube.sgml
 SELECT c FROM test ORDER BY c <-> cube(ARRAY[0.5, 0.5, 0.5]) LIMIT 1;
 ;;
@@ -917,6 +895,10 @@ CREATE TABLE measurement (
 ;;
 -- ddl.sgml
 CREATE TABLE measurement_y2006m02 PARTITION OF measurement
+    FOR VALUES FROM ('2006-02-01') TO ('2006-03-01');
+;;
+-- ddl.sgml
+CREATE TABLE measurement_y2006m02 PARTITION OF measurement
     FOR VALUES FROM ('2006-02-01') TO ('2006-03-01')
     PARTITION BY RANGE (peaktemp);
 ;;
@@ -933,6 +915,20 @@ ALTER TABLE measurement DETACH PARTITION measurement_y2006m02;
 CREATE TABLE measurement_y2008m02 PARTITION OF measurement
     FOR VALUES FROM ('2008-02-01') TO ('2008-03-01')
     TABLESPACE fasttablespace;
+;;
+-- ddl.sgml
+CREATE INDEX measurement_usls_idx ON ONLY measurement (unitsales);
+;;
+-- ddl.sgml
+ALTER TABLE ONLY measurement ADD UNIQUE (city_id, logdate);
+;;
+-- ddl.sgml
+CREATE TABLE measurement_y2006m02 () INHERITS (measurement);
+;;
+-- ddl.sgml
+CREATE TABLE measurement_y2006m02 (
+    CHECK ( logdate >= DATE '2006-02-01' AND logdate < DATE '2006-03-01' )
+) INHERITS (measurement);
 ;;
 -- ddl.sgml
 CREATE INDEX measurement_y2006m02_logdate ON measurement_y2006m02 (logdate);
@@ -953,6 +949,13 @@ CREATE TRIGGER insert_measurement_trigger
     FOR EACH ROW EXECUTE FUNCTION measurement_insert_trigger();
 ;;
 -- ddl.sgml
+CREATE RULE measurement_insert_y2006m02 AS
+ON INSERT TO measurement WHERE
+    ( logdate >= DATE '2006-02-01' AND logdate < DATE '2006-03-01' )
+DO INSTEAD
+    INSERT INTO measurement_y2006m02 VALUES (NEW.*);
+;;
+-- ddl.sgml
 ALTER TABLE measurement_y2006m02 NO INHERIT measurement;
 ;;
 -- ddl.sgml
@@ -966,6 +969,9 @@ ANALYZE ONLY measurement;
 -- ddl.sgml
 SET enable_partition_pruning = on;                 -- the default
 SELECT count(*) FROM measurement WHERE logdate >= DATE '2008-01-01';
+;;
+-- ddl.sgml
+SET enable_partition_pruning = off;
 ;;
 -- ddl.sgml
 SET enable_partition_pruning = on;
@@ -1475,6 +1481,12 @@ UPDATE tab SET h = delete(h, 'k1');
 CREATE TABLE stat AS SELECT (each(h)).key, (each(h)).value FROM testhstore;
 ;;
 -- hstore.sgml
+SELECT key, count(*) FROM
+  (SELECT (each(h)).key FROM testhstore) AS stat
+  GROUP BY key
+  ORDER BY count DESC, key;
+;;
+-- hstore.sgml
 UPDATE tablename SET hstorecol = hstorecol || '';
 ;;
 -- hstore.sgml
@@ -1772,6 +1784,9 @@ SELECT * FROM zipcodes WHERE city = 'San Francisco' AND zip = '90210';
 CREATE STATISTICS stts2 (ndistinct) ON city, state, zip FROM zipcodes;
 ;;
 -- perform.sgml
+CREATE STATISTICS stts3 (mcv) ON city, state FROM zipcodes;
+;;
+-- perform.sgml
 SELECT * FROM a, b, c WHERE a.id = b.id AND b.ref = c.id;
 ;;
 -- perform.sgml
@@ -1897,6 +1912,10 @@ EXPLAIN (ANALYZE, TIMING OFF, BUFFERS OFF) SELECT COUNT(*) FROM t GROUP BY a, b;
 ;;
 -- planstats.sgml
 DROP STATISTICS stts;
+;;
+-- planstats.sgml
+SELECT m.* FROM pg_statistic_ext JOIN pg_statistic_ext_data ON (oid = stxoid),
+                pg_mcv_list_items(stxdmcv) m WHERE stxname = 'stts2';
 ;;
 -- planstats.sgml
 EXPLAIN (ANALYZE, TIMING OFF, BUFFERS OFF) SELECT * FROM t WHERE a = 1 AND b = 10;
@@ -2328,6 +2347,10 @@ INSERT INTO mytab(firstname, lastname) VALUES('Tom', 'Jones');
 CREATE TABLE db (a INT PRIMARY KEY, b TEXT);
 ;;
 -- plpgsql.sgml
+DECLARE
+  text_var1 text;
+;;
+-- plpgsql.sgml
 CREATE OR REPLACE FUNCTION outer_func() RETURNS integer AS $$
 BEGIN
   RETURN inner_func();
@@ -2625,6 +2648,10 @@ BEGIN
     COMMIT;
 END;
 $$ LANGUAGE plpgsql;
+;;
+-- plpgsql.sgml
+BEGIN
+    SAVEPOINT s1;
 ;;
 -- plpython.sgml
 CREATE FUNCTION pymax (a integer, b integer)
@@ -4557,6 +4584,9 @@ CREATE TYPE bug_status AS ENUM ('new', 'open', 'closed');
 CREATE TYPE float8_range AS RANGE (subtype = float8, subtype_diff = float8mi);
 ;;
 -- ref/create_type.sgml
+CREATE TYPE box;
+;;
+-- ref/create_type.sgml
 CREATE TYPE box (
     INTERNALLENGTH = 16,
     INPUT = my_box_in_function,
@@ -5049,6 +5079,10 @@ SELECT * FROM (SELECT * FROM mytable FOR UPDATE) ss WHERE col1 = 5;
 SELECT * FROM (SELECT * FROM mytable FOR UPDATE) ss ORDER BY column1;
 ;;
 -- ref/select.sgml
+SELECT f.title, f.did, d.name, f.date_prod, f.kind
+    FROM distributors d JOIN films f USING (did);
+;;
+-- ref/select.sgml
 SELECT kind, sum(len) AS total FROM films GROUP BY kind;
 ;;
 -- ref/select.sgml
@@ -5122,6 +5156,9 @@ SHOW DateStyle;
 ;;
 -- ref/show.sgml
 SHOW geqo;
+;;
+-- ref/show.sgml
+SHOW ALL;
 ;;
 -- ref/truncate.sgml
 TRUNCATE bigtable, fattable;
@@ -5238,6 +5275,9 @@ SELECT (item).name FROM on_hand WHERE (item).price > 9.99;
 ;;
 -- rowtypes.sgml
 SELECT (on_hand.item).name FROM on_hand WHERE (on_hand.item).price > 9.99;
+;;
+-- rowtypes.sgml
+INSERT INTO mytab (complex_col) VALUES((1.1,2.2));
 ;;
 -- rowtypes.sgml
 INSERT INTO mytab (complex_col.r, complex_col.i) VALUES(1.1, 2.2);

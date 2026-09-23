@@ -104,14 +104,16 @@ def main():
             if re.search(r"^\s*\\", text, re.M) or "=>" in text or "=#" in text:
                 stats["skip: psql session"] += 1
                 continue
-            if "..." in text:
-                # An elision the docs write in running SQL, not a placeholder
-                # <replaceable>, so it reads as an example but does not run.
-                stats["skip: elision"] += 1
-                continue
             stmt = first_statement(text)
             if stmt is None:
                 stats["skip: no terminator"] += 1
+                continue
+            if "..." in stmt:
+                # An elision the docs write in running SQL, not a placeholder
+                # <replaceable>, so it reads as an example but does not run.
+                # Only the statement is checked: the output after it can
+                # contain "..." too.
+                stats["skip: elision"] += 1
                 continue
             if stmt in seen:
                 # The same example appears on more than one page.
