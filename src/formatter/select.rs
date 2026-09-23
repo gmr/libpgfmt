@@ -141,6 +141,14 @@ impl<'a> Formatter<'a> {
                 "offset_clause" => clauses.offset_clause = Some(*child),
                 "window_clause" => clauses.window_clause = Some(*child),
                 "for_locking_clause" => clauses.for_locking = Some(*child),
+                // FOR UPDATE written after LIMIT arrives wrapped; unwrapped
+                // it was never matched and the lock was dropped -- see
+                // https://github.com/gmr/libpgfmt/issues/67.
+                "opt_for_locking_clause" => {
+                    if let Some(lock) = child.find_child("for_locking_clause") {
+                        clauses.for_locking = Some(lock);
+                    }
+                }
                 "kw_union" | "kw_intersect" | "kw_except" => {
                     seen_set_op = true;
                     // Set operation — find the right side.

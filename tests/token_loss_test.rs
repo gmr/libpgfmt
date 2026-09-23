@@ -357,3 +357,33 @@ fn formatted_corpus_reparses() {
         failures.join("\n")
     );
 }
+
+/// Formatting is a fixed point. Content can survive the first pass and be lost
+/// on the second: `FOR UPDATE LIMIT n` was rendered as `LIMIT n FOR UPDATE`,
+/// which the next pass dropped the lock from (#67). Comparing the input with
+/// one pass cannot see that.
+#[test]
+fn formatted_corpus_is_a_fixed_point() {
+    let mut failures = Vec::new();
+    for (statement, sql) in corpus() {
+        for &style in Style::ALL {
+            let Ok(once) = format(&sql, style) else {
+                continue;
+            };
+            let Ok(twice) = format(&once, style) else {
+                continue; // formatted_corpus_reparses reports this.
+            };
+            if once != twice {
+                failures.push(format!(
+                    "\n{statement}:{style}\nInput:\n{sql}\nFirst pass:\n{once}\nSecond pass:\n{twice}"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} formatted statement(s) change when formatted again:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
