@@ -21,6 +21,9 @@ pub(crate) struct SelectClauses<'a> {
     /// `SELECT ... INTO target`, which creates a table (or, in PL/pgSQL,
     /// assigns to variables) instead of returning rows.
     pub into_clause: Option<Node<'a>>,
+    /// A branch of a set operation written in parentheses, `(SELECT ...)`,
+    /// which is rendered as a unit in place of a SELECT list.
+    pub parenthesized: Option<Node<'a>>,
     /// WINDOW clause (named window definitions).
     pub window_clause: Option<Node<'a>>,
     /// FOR UPDATE / FOR SHARE (row-level locking).
@@ -81,6 +84,7 @@ impl<'a> Formatter<'a> {
             offset_clause: None,
             with_clause: None,
             into_clause: None,
+            parenthesized: None,
             window_clause: None,
             for_locking: None,
             set_op: None,
@@ -167,11 +171,15 @@ impl<'a> Formatter<'a> {
                         }
                     }
                     if let Some(right) = right_clause {
-                        clauses.set_op = Some(SetOp {
+                        let op = SetOp {
                             keyword,
                             quantifier,
                             right,
                             right_clauses: None,
+                        };
+                        clauses.set_op = Some(match clauses.set_op.take() {
+                            Some(chain) => self.append_set_op(chain, op),
+                            None => op,
                         });
                     } else {
                         // ERROR recovery: the right side tokens are loose children
@@ -189,6 +197,7 @@ impl<'a> Formatter<'a> {
                             offset_clause: None,
                             with_clause: None,
                             into_clause: None,
+                            parenthesized: None,
                             window_clause: None,
                             for_locking: None,
                             set_op: None,
@@ -229,9 +238,36 @@ impl<'a> Formatter<'a> {
                     }
                 }
                 "values_clause" => clauses.values_clause = Some(*child),
+                // `(SELECT 1) UNION SELECT 2`: nothing inside the parentheses
+                // is a clause of this level, and collecting nothing rendered
+                // the branch as `SELECT *` -- see
+                // https://github.com/gmr/libpgfmt/issues/60.
+                "select_with_parens" => clauses.parenthesized = Some(*child),
                 _ => {}
             }
         }
+    }
+
+    /// Add `op` after the last branch of `chain`.
+    ///
+    /// `A UNION B UNION C` parses left-nested, `((A UNION B) UNION C)`, so the
+    /// recursion into the left side records `UNION B` before this level sees
+    /// `UNION C`. Assigning the second over the first dropped B -- see
+    /// https://github.com/gmr/libpgfmt/issues/60. Branches are rendered as a
+    /// flat sequence in source order, and PostgreSQL applies the same
+    /// precedence when it parses that sequence, so hanging `op` off the last
+    /// branch keeps the meaning.
+    fn append_set_op(&self, mut chain: SetOp<'a>, op: SetOp<'a>) -> SetOp<'a> {
+        let mut last = match chain.right_clauses.take() {
+            Some(clauses) => clauses,
+            None => Box::new(self.collect_select_clauses(chain.right)),
+        };
+        last.set_op = Some(match last.set_op.take() {
+            Some(inner) => self.append_set_op(inner, op),
+            None => op,
+        });
+        chain.right_clauses = Some(last);
+        chain
     }
 
     fn collect_limit_clauses(&self, node: Node<'a>, clauses: &mut SelectClauses<'a>) {
@@ -334,13 +370,17 @@ impl<'a> Formatter<'a> {
         } else {
             None
         };
-        self.append_river_targets_with_prefix(
-            &select_kw,
-            distinct_prefix.as_deref(),
-            &clauses.targets,
-            river_width,
-            &mut lines,
-        );
+        if let Some(branch) = clauses.parenthesized {
+            lines.push(self.format_select_with_parens(branch));
+        } else {
+            self.append_river_targets_with_prefix(
+                &select_kw,
+                distinct_prefix.as_deref(),
+                &clauses.targets,
+                river_width,
+                &mut lines,
+            );
+        }
 
         if let Some(into) = clauses.into_clause {
             lines.push(self.river_line(
@@ -376,24 +416,29 @@ impl<'a> Formatter<'a> {
             lines.push(self.river_line(&self.kw("WINDOW"), &content, river_width));
         }
 
-        // ORDER BY clause.
+        // ORDER BY, LIMIT, OFFSET and FOR UPDATE. With a set operation these
+        // apply to the whole of it -- a branch can only have its own inside
+        // parentheses -- so they are written after the last branch. Writing
+        // them after the first gave `SELECT 1 ORDER BY 1 UNION SELECT 2`,
+        // which PostgreSQL rejects -- see
+        // https://github.com/gmr/libpgfmt/issues/60.
+        let mut tail = Vec::new();
         if let Some(sort) = clauses.sort_clause {
-            self.format_order_by_river(sort, river_width, &mut lines);
+            self.format_order_by_river(sort, river_width, &mut tail);
         }
-
-        // LIMIT / OFFSET.
         if let Some(limit) = clauses.limit_clause {
-            self.format_limit_river(limit, river_width, &mut lines);
+            self.format_limit_river(limit, river_width, &mut tail);
         }
         if let Some(offset) = clauses.offset_clause {
-            self.format_offset_river(offset, river_width, &mut lines);
+            self.format_offset_river(offset, river_width, &mut tail);
         }
-
-        // FOR UPDATE / FOR SHARE locking.
         if let Some(for_locking) = clauses.for_locking {
             for content in self.format_for_locking_items(for_locking) {
-                lines.push(self.river_line(&self.kw("FOR"), &content, river_width));
+                tail.push(self.river_line(&self.kw("FOR"), &content, river_width));
             }
+        }
+        if clauses.set_op.is_none() {
+            lines.append(&mut tail);
         }
 
         let mut result = lines.join("\n");
@@ -413,6 +458,10 @@ impl<'a> Formatter<'a> {
             } else {
                 let right_clauses = self.collect_select_clauses(set_op.right);
                 result.push_str(&self.format_select_river(&right_clauses));
+            }
+            if !tail.is_empty() {
+                result.push('\n');
+                result.push_str(&tail.join("\n"));
             }
         }
 
@@ -1344,7 +1393,9 @@ impl<'a> Formatter<'a> {
             self.kw("SELECT")
         };
 
-        if clauses.targets.len() <= 1 {
+        if let Some(branch) = clauses.parenthesized {
+            lines.push(self.format_select_with_parens(branch));
+        } else if clauses.targets.len() <= 1 {
             let target_text = clauses
                 .targets
                 .first()
@@ -1412,6 +1463,10 @@ impl<'a> Formatter<'a> {
             lines.push(format!("{} {content}", self.kw("WINDOW")));
         }
 
+        // ORDER BY through FOR UPDATE apply to the whole set operation when
+        // there is one, so they are moved after its last branch below.
+        let tail_start = lines.len();
+
         // ORDER BY.
         if let Some(sort) = clauses.sort_clause {
             if blank {
@@ -1454,6 +1509,11 @@ impl<'a> Formatter<'a> {
             }
         }
 
+        let tail = if clauses.set_op.is_some() {
+            lines.split_off(tail_start)
+        } else {
+            Vec::new()
+        };
         let mut result = lines.join("\n");
 
         // Set operations.
@@ -1475,6 +1535,10 @@ impl<'a> Formatter<'a> {
             } else {
                 let right_clauses = self.collect_select_clauses(set_op.right);
                 result.push_str(&self.format_select_left_aligned(&right_clauses));
+            }
+            if !tail.is_empty() {
+                result.push('\n');
+                result.push_str(&tail.join("\n"));
             }
         }
 

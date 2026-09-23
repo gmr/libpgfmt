@@ -63,14 +63,6 @@
 4dc429af639201e3:mattmc3  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4dc429af639201e3:mozilla  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4dc429af639201e3:river  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4f2aa9162cd37215:aweber  drops: 2 'two' union all select ,
-4f2aa9162cd37215:dbt  drops: 2 'two' union all select ,
-4f2aa9162cd37215:gitlab  drops: 2 'two' union all select ,
-4f2aa9162cd37215:kickstarter  drops: 2 'two' union all select ,
-4f2aa9162cd37215:mattmc3  drops: 2 'two' union all select ,
-4f2aa9162cd37215:mozilla  drops: 2 'two' union all select ,
-4f2aa9162cd37215:pg_dump  drops: 2 'two' union all select ,
-4f2aa9162cd37215:river  drops: 2 'two' union all select ,
 6031e25d1b0e22e6:aweber  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:dbt  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:gitlab  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'

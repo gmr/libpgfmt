@@ -902,3 +902,43 @@ fn view_options_preserved() {
         }
     }
 }
+
+// https://github.com/gmr/libpgfmt/issues/60: every branch of a set operation
+// survives, a parenthesized branch keeps its contents, and a trailing ORDER BY
+// or LIMIT stays after the last branch, where it applies to the whole.
+#[test]
+fn set_operation_branches_preserved() {
+    let cases: &[(&str, &[&str])] = &[
+        (
+            "SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3",
+            &["SELECT 1", "SELECT 2", "SELECT 3"],
+        ),
+        (
+            "SELECT 1 UNION SELECT 2 EXCEPT SELECT 3 INTERSECT SELECT 4",
+            &["SELECT 1", "SELECT 2", "SELECT 3", "SELECT 4"],
+        ),
+        ("(SELECT 1) UNION SELECT 2", &["SELECT 1", "SELECT 2"]),
+    ];
+    for &style in Style::ALL {
+        for (sql, pieces) in cases {
+            let result = format(sql, style).unwrap().to_uppercase();
+            for piece in *pieces {
+                assert!(
+                    result.contains(piece),
+                    "\nStyle: {style}\nInput: {sql}\nmissing {piece:?} in:\n{result}"
+                );
+            }
+        }
+        let result = format("SELECT 1 UNION SELECT 2 ORDER BY 1 LIMIT 5", style)
+            .unwrap()
+            .to_uppercase();
+        let (union, order) = (
+            result.find("UNION").unwrap(),
+            result.find("ORDER BY").unwrap(),
+        );
+        assert!(
+            union < order,
+            "\nStyle: {style}\nORDER BY precedes UNION in:\n{result}"
+        );
+    }
+}

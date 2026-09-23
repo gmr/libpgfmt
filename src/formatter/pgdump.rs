@@ -187,6 +187,9 @@ impl<'a> Formatter<'a> {
         if let Some(values) = c.values_clause {
             s.push_str(&" ".repeat(STEP * depth + 1));
             s.push_str(&self.collapse_ws(self.text(values)));
+        } else if let Some(branch) = c.parenthesized {
+            s.push_str(&" ".repeat(STEP * depth + 1));
+            s.push_str(&self.render_select_with_parens(branch, depth));
         } else {
             // SELECT [DISTINCT] target, ... (CASE targets render as blocks).
             s.push_str(&self.pgdump_targets(c, depth));
