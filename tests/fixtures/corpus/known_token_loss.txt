@@ -1,61 +1,61 @@
 # Statements that still lose content when formatted. Tracked by issue #58.
 #
 # One `id:style` per line, from tests/token_loss_test.rs, with the issue
-# tracking it and a note naming what is dropped. Remove a line when the
-# statement is fixed; the test fails if a listed statement stops losing
-# content, so this list cannot go stale.
+# tracking it and, after `drops:`, the exact tokens dropped. Remove a line
+# when the statement is fixed; the test fails if a listed statement stops
+# losing content or drops other tokens, so this list cannot go stale.
 #
 # See every entry with its input and output:
 #   TOKEN_LOSS_REPORT=1 cargo test --test token_loss_test -- --nocapture
 
-6031e25d1b0e22e6:aweber  [#57] drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-6031e25d1b0e22e6:dbt  [#57] drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-6031e25d1b0e22e6:gitlab  [#57] drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-6031e25d1b0e22e6:kickstarter  [#57] drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-6031e25d1b0e22e6:mattmc3  [#57] drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-6031e25d1b0e22e6:mozilla  [#57] drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-6031e25d1b0e22e6:river  [#57] drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-8dcafae935966dce:aweber  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ?
-8dcafae935966dce:dbt  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ?
-8dcafae935966dce:gitlab  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ?
-8dcafae935966dce:kickstarter  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ?
-8dcafae935966dce:mattmc3  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ?
-8dcafae935966dce:mozilla  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ?
-8dcafae935966dce:river  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ?
-ac4548861c422ac8:aweber  [#62] drops: and this one - -
-ac4548861c422ac8:dbt  [#62] drops: and this one - -
-ac4548861c422ac8:gitlab  [#62] drops: and this one - -
-ac4548861c422ac8:kickstarter  [#62] drops: and this one - -
-ac4548861c422ac8:mattmc3  [#62] drops: and this one - -
-ac4548861c422ac8:mozilla  [#62] drops: and this one - -
-ac4548861c422ac8:river  [#62] drops: and this one - -
-c06277f560204556:aweber  [#62] drops: - -
-c06277f560204556:dbt  [#62] drops: - -
-c06277f560204556:gitlab  [#62] drops: - -
-c06277f560204556:kickstarter  [#62] drops: - -
-c06277f560204556:mattmc3  [#62] drops: - -
-c06277f560204556:mozilla  [#62] drops: - -
-c06277f560204556:pg_dump  [#62] drops: - -
-c06277f560204556:river  [#62] drops: - -
-ccd523c059a78328:aweber  [#57] drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-ccd523c059a78328:dbt  [#57] drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-ccd523c059a78328:gitlab  [#57] drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-ccd523c059a78328:kickstarter  [#57] drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-ccd523c059a78328:mattmc3  [#57] drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-ccd523c059a78328:mozilla  [#57] drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-ccd523c059a78328:pg_dump  [#57] drops: '\";\n    };\n$$ LANGUAGE plperl;
-ccd523c059a78328:river  [#57] drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-e59fc5a348a37823:aweber  [#57] drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
-e59fc5a348a37823:dbt  [#57] drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
-e59fc5a348a37823:gitlab  [#57] drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
-e59fc5a348a37823:kickstarter  [#57] drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
-e59fc5a348a37823:mattmc3  [#57] drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
-e59fc5a348a37823:mozilla  [#57] drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
-e59fc5a348a37823:river  [#57] drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
-ebc920835ba820c5:aweber  [#57] drops: ' $$;
-ebc920835ba820c5:dbt  [#57] drops: ' $$;
-ebc920835ba820c5:gitlab  [#57] drops: ' $$;
-ebc920835ba820c5:kickstarter  [#57] drops: ' $$;
-ebc920835ba820c5:mattmc3  [#57] drops: ' $$;
-ebc920835ba820c5:mozilla  [#57] drops: ' $$;
-ebc920835ba820c5:river  [#57] drops: ' $$;
+6031e25d1b0e22e6:aweber  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
+6031e25d1b0e22e6:dbt  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
+6031e25d1b0e22e6:gitlab  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
+6031e25d1b0e22e6:kickstarter  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
+6031e25d1b0e22e6:mattmc3  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
+6031e25d1b0e22e6:mozilla  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
+6031e25d1b0e22e6:river  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
+8dcafae935966dce:aweber  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ["?"]
+8dcafae935966dce:dbt  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ["?"]
+8dcafae935966dce:gitlab  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ["?"]
+8dcafae935966dce:kickstarter  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ["?"]
+8dcafae935966dce:mattmc3  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ["?"]
+8dcafae935966dce:mozilla  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ["?"]
+8dcafae935966dce:river  [#58 (`?` is not PostgreSQL; tolerated 1-byte ERROR node)] drops: ["?"]
+ac4548861c422ac8:aweber  [#62] drops: ["and", "this", "one", "-", "-"]
+ac4548861c422ac8:dbt  [#62] drops: ["and", "this", "one", "-", "-"]
+ac4548861c422ac8:gitlab  [#62] drops: ["and", "this", "one", "-", "-"]
+ac4548861c422ac8:kickstarter  [#62] drops: ["and", "this", "one", "-", "-"]
+ac4548861c422ac8:mattmc3  [#62] drops: ["and", "this", "one", "-", "-"]
+ac4548861c422ac8:mozilla  [#62] drops: ["and", "this", "one", "-", "-"]
+ac4548861c422ac8:river  [#62] drops: ["and", "this", "one", "-", "-"]
+c06277f560204556:aweber  [#62] drops: ["-", "-"]
+c06277f560204556:dbt  [#62] drops: ["-", "-"]
+c06277f560204556:gitlab  [#62] drops: ["-", "-"]
+c06277f560204556:kickstarter  [#62] drops: ["-", "-"]
+c06277f560204556:mattmc3  [#62] drops: ["-", "-"]
+c06277f560204556:mozilla  [#62] drops: ["-", "-"]
+c06277f560204556:pg_dump  [#62] drops: ["-", "-"]
+c06277f560204556:river  [#62] drops: ["-", "-"]
+ccd523c059a78328:aweber  [#57] drops: ["'\\\\])/\\\\$1/g;\n        return \"'", "'\";\n    };\n", " LANGUAGE plperl;"]
+ccd523c059a78328:dbt  [#57] drops: ["'\\\\])/\\\\$1/g;\n        return \"'", "'\";\n    };\n", " LANGUAGE plperl;"]
+ccd523c059a78328:gitlab  [#57] drops: ["'\\\\])/\\\\$1/g;\n        return \"'", "'\";\n    };\n", " LANGUAGE plperl;"]
+ccd523c059a78328:kickstarter  [#57] drops: ["'\\\\])/\\\\$1/g;\n        return \"'", "'\";\n    };\n", " LANGUAGE plperl;"]
+ccd523c059a78328:mattmc3  [#57] drops: ["'\\\\])/\\\\$1/g;\n        return \"'", "'\";\n    };\n", " LANGUAGE plperl;"]
+ccd523c059a78328:mozilla  [#57] drops: ["'\\\\])/\\\\$1/g;\n        return \"'", "'\";\n    };\n", " LANGUAGE plperl;"]
+ccd523c059a78328:pg_dump  [#57] drops: [" LANGUAGE plperl;"]
+ccd523c059a78328:river  [#57] drops: ["'\\\\])/\\\\$1/g;\n        return \"'", "'\";\n    };\n", " LANGUAGE plperl;"]
+e59fc5a348a37823:aweber  [#57] drops: ["'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n                                                        v_domain varchar,\n                                                        v_url varchar)\n        RETURNS varchar AS '"]
+e59fc5a348a37823:dbt  [#57] drops: ["'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n                                                        v_domain varchar,\n                                                        v_url varchar)\n        RETURNS varchar AS '"]
+e59fc5a348a37823:gitlab  [#57] drops: ["'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n                                                        v_domain varchar,\n                                                        v_url varchar)\n        RETURNS varchar AS '"]
+e59fc5a348a37823:kickstarter  [#57] drops: ["'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n                                                        v_domain varchar,\n                                                        v_url varchar)\n        RETURNS varchar AS '"]
+e59fc5a348a37823:mattmc3  [#57] drops: ["'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n                                                        v_domain varchar,\n                                                        v_url varchar)\n        RETURNS varchar AS '"]
+e59fc5a348a37823:mozilla  [#57] drops: ["'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n                                                        v_domain varchar,\n                                                        v_url varchar)\n        RETURNS varchar AS '"]
+e59fc5a348a37823:river  [#57] drops: ["'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n                                                        v_domain varchar,\n                                                        v_url varchar)\n        RETURNS varchar AS '"]
+ebc920835ba820c5:aweber  [#57] drops: ["' "]
+ebc920835ba820c5:dbt  [#57] drops: ["' "]
+ebc920835ba820c5:gitlab  [#57] drops: ["' "]
+ebc920835ba820c5:kickstarter  [#57] drops: ["' "]
+ebc920835ba820c5:mattmc3  [#57] drops: ["' "]
+ebc920835ba820c5:mozilla  [#57] drops: ["' "]
+ebc920835ba820c5:river  [#57] drops: ["' "]

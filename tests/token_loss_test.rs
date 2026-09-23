@@ -265,6 +265,7 @@ fn formatting_does_not_drop_content() {
     let known = known_token_loss();
     let mut seen = Vec::new();
     let mut regressions = Vec::new();
+    let mut changed = Vec::new();
 
     for (statement, sql) in corpus() {
         for &style in Style::ALL {
@@ -282,10 +283,18 @@ fn formatting_does_not_drop_content() {
             if std::env::var_os("TOKEN_LOSS_REPORT").is_some() {
                 println!("{id}\nInput:\n{sql}\nFormatted to:\n{formatted}\nDropped: {missing:?}\n");
             }
-            if !known.contains_key(&id) {
-                regressions.push(format!(
+            match known.get(&id) {
+                None => regressions.push(format!(
                     "\n{id}\nInput:\n{sql}\nFormatted to:\n{formatted}\nDropped: {missing:?}"
-                ));
+                )),
+                // A listed statement must lose exactly what its note names, so
+                // a further loss in it is not hidden by the entry.
+                Some(note) => {
+                    let drops = format!("{missing:?}");
+                    if note.split_once("drops: ").map(|(_, d)| d) != Some(drops.as_str()) {
+                        changed.push(format!("  {id}  listed: {note}\n    now drops: {drops}"));
+                    }
+                }
             }
         }
     }
@@ -302,6 +311,14 @@ fn formatting_does_not_drop_content() {
          was in the input and is not in the output.\n{}",
         regressions.len(),
         regressions.join("\n")
+    );
+    assert!(
+        changed.is_empty(),
+        "{} statement(s) in known_token_loss.txt now lose different content. \
+         Fix the new loss, or update the `drops:` note if the change is \
+         intended:\n{}",
+        changed.len(),
+        changed.join("\n")
     );
     assert!(
         fixed.is_empty(),
