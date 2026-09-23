@@ -90,9 +90,12 @@ impl<'a> Formatter<'a> {
                 let rest_start = decl
                     .find_child("decl_varname")
                     .map_or(decl.start_byte(), |n| n.end_byte());
-                let rest = lexical::collapse_whitespace(
+                let mut rest = lexical::collapse_whitespace(
                     self.source[rest_start..decl.end_byte()].trim_end_matches(';'),
                 );
+                if lexical::ends_in_line_comment(&rest) {
+                    rest.push('\n');
+                }
                 lines.push(format!("{indent}{var_name} {rest};"));
                 return;
             }

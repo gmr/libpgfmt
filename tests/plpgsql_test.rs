@@ -152,3 +152,21 @@ fn plpgsql_keeps_labels_directives_cursors_comments_and_nested_terminators() {
         assert_eq!(once, twice, "\nStyle: {style}");
     }
 }
+
+// A bound cursor's query that ends in a `--` comment keeps its `;` on the next
+// line, out of the comment, so the output still parses.
+#[test]
+fn plpgsql_cursor_query_ending_in_line_comment_keeps_terminator() {
+    let body = "DECLARE\n    c CURSOR FOR SELECT 1 -- note\n;\nBEGIN\n    OPEN c;\nEND";
+    for &style in Style::ALL {
+        let once = format_plpgsql(body, style).unwrap();
+        assert!(
+            once.contains("-- note\n;"),
+            "\nStyle: {style}\nGot:\n{once}"
+        );
+        let twice = format_plpgsql(&once, style).unwrap_or_else(|e| {
+            panic!("\nStyle: {style}\nFormatted to:\n{once}\nWhich fails: {e}")
+        });
+        assert_eq!(once, twice, "\nStyle: {style}");
+    }
+}

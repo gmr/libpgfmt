@@ -389,10 +389,10 @@ fn formatted_corpus_is_a_fixed_point() {
 }
 
 /// The PL/pgSQL body of every corpus statement written in PL/pgSQL, as
-/// `(id, body)`: the dollar-quoted body of a CREATE FUNCTION or PROCEDURE
-/// that names `plpgsql`, or of a DO block. `format_plpgsql` formats these;
-/// `format` only re-lays them out, so the statement tests above never reach
-/// it.
+/// `(id, body)`: the dollar-quoted or `AS '...'` body of a CREATE FUNCTION or
+/// PROCEDURE that names `plpgsql`, or of a DO block. `format_plpgsql` formats
+/// these; `format` only re-lays them out, so the statement tests above never
+/// reach it.
 fn plpgsql_bodies() -> Vec<(String, String)> {
     corpus()
         .into_iter()
@@ -402,20 +402,42 @@ fn plpgsql_bodies() -> Vec<(String, String)> {
                 return None;
             }
             let chars: Vec<char> = sql.chars().collect();
-            let open = (0..chars.len()).find_map(|i| {
+            let dollar = (0..chars.len()).find_map(|i| {
                 (chars[i] == '$' && (i == 0 || !chars[i - 1].is_alphanumeric()))
                     .then(|| dollar_quote(&chars, i))
                     .flatten()
-                    .map(|(body, close)| (i, body, close))
-            })?;
-            let (_, body_start, close) = open;
-            let body: String = chars[body_start..close].iter().collect();
+            });
+            let body = match dollar {
+                Some((body_start, close)) => chars[body_start..close].iter().collect(),
+                None => single_quoted_body(&chars)?,
+            };
             let body = body.trim().to_string();
             body.to_lowercase()
                 .contains("begin")
                 .then(|| (id(&body), body))
         })
         .collect()
+}
+
+/// The body of `AS '...'`, with each doubled quote written once.
+fn single_quoted_body(chars: &[char]) -> Option<String> {
+    let open = (0..chars.len()).find(|&i| {
+        let before: String = chars[..i].iter().collect();
+        chars[i] == '\'' && before.trim_end().to_lowercase().ends_with(" as")
+    })?;
+    let mut body = String::new();
+    let mut i = open + 1;
+    while i < chars.len() {
+        if chars[i] == '\'' {
+            if chars.get(i + 1) != Some(&'\'') {
+                return Some(body);
+            }
+            i += 1;
+        }
+        body.push(chars[i]);
+        i += 1;
+    }
+    None
 }
 
 /// `format_plpgsql` keeps every token of a body, its output parses, and a
