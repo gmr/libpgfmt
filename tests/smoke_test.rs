@@ -1014,3 +1014,26 @@ fn function_in_from_preserved() {
         }
     }
 }
+
+// ORDER BY ... USING keeps its operator, and an INSERT target keeps the alias
+// that ON CONFLICT refers to.
+#[test]
+fn sort_operator_and_insert_alias_preserved() {
+    for &style in Style::ALL {
+        let sorted = format("SELECT * FROM t ORDER BY a USING ~<~", style).unwrap();
+        assert!(
+            sorted.contains("USING ~<~") || sorted.contains("using ~<~"),
+            "\nStyle: {style}\nGot:\n{sorted}"
+        );
+        let insert = format(
+            "INSERT INTO distributors AS d (did) VALUES (1) ON CONFLICT (did) DO UPDATE SET dname = 'x' WHERE d.zipcode <> '21201'",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            insert.contains("DISTRIBUTORS AS D"),
+            "\nStyle: {style}\nGot:\n{insert}"
+        );
+    }
+}

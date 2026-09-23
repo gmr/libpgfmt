@@ -1059,6 +1059,11 @@ impl<'a> Formatter<'a> {
                         parts.push(self.kw("LAST"));
                     }
                 }
+                // `ORDER BY a USING ~<~` sorts by that operator; without it
+                // the sort falls back to the type's default order -- see
+                // https://github.com/gmr/libpgfmt/issues/58.
+                "kw_using" => parts.push(self.kw("USING")),
+                "qual_all_Op" => parts.push(self.text(child).trim().to_string()),
                 _ => {}
             }
         }

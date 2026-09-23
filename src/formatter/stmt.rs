@@ -70,7 +70,7 @@ impl<'a> Formatter<'a> {
         // INSERT INTO target.
         let target = node
             .find_child("insert_target")
-            .map(|n| self.format_qualified_name_from(n))
+            .map(|n| self.format_insert_target(n))
             .unwrap_or_default();
         parts.push(format!(
             "{} {} {target}",
@@ -1981,12 +1981,19 @@ impl<'a> Formatter<'a> {
         parts.join(" ")
     }
 
-    fn format_qualified_name_from(&self, node: Node<'a>) -> String {
-        // insert_target wraps a qualified_name.
-        if let Some(qn) = node.find_child("qualified_name") {
-            return self.format_expr(qn);
+    /// The table an INSERT writes to, with its alias. ON CONFLICT and
+    /// RETURNING refer to the table by the alias once one is given, so
+    /// dropping it leaves them naming a table that no longer exists -- see
+    /// https://github.com/gmr/libpgfmt/issues/58.
+    fn format_insert_target(&self, node: Node<'a>) -> String {
+        let Some(qn) = node.find_child("qualified_name") else {
+            return self.format_expr(node);
+        };
+        let name = self.format_expr(qn);
+        match node.find_child("ColId") {
+            Some(alias) => format!("{name} {} {}", self.kw("AS"), self.format_expr(alias)),
+            None => name,
         }
-        self.format_expr(node)
     }
 
     fn find_name_in_create(&self, node: Node<'a>) -> String {

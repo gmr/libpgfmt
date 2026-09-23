@@ -42,13 +42,6 @@
 7e1dcb11cd19078f:mattmc3  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 7e1dcb11cd19078f:mozilla  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 7e1dcb11cd19078f:river  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
-80f0fb3ee4a2ac6a:aweber  drops: as d
-80f0fb3ee4a2ac6a:dbt  drops: as d
-80f0fb3ee4a2ac6a:gitlab  drops: as d
-80f0fb3ee4a2ac6a:kickstarter  drops: as d
-80f0fb3ee4a2ac6a:mattmc3  drops: as d
-80f0fb3ee4a2ac6a:mozilla  drops: as d
-80f0fb3ee4a2ac6a:river  drops: as d
 8dcafae935966dce:aweber  drops: ?
 8dcafae935966dce:dbt  drops: ?
 8dcafae935966dce:gitlab  drops: ?
@@ -85,13 +78,6 @@ c06277f560204556:mattmc3  drops: - -
 c06277f560204556:mozilla  drops: - -
 c06277f560204556:pg_dump  drops: - -
 c06277f560204556:river  drops: - -
-c78ba85af91a4f0b:aweber  drops: using ~ < ~
-c78ba85af91a4f0b:dbt  drops: using ~ < ~
-c78ba85af91a4f0b:gitlab  drops: using ~ < ~
-c78ba85af91a4f0b:kickstarter  drops: using ~ < ~
-c78ba85af91a4f0b:mattmc3  drops: using ~ < ~
-c78ba85af91a4f0b:mozilla  drops: using ~ < ~
-c78ba85af91a4f0b:river  drops: using ~ < ~
 ccd523c059a78328:aweber  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
 ccd523c059a78328:dbt  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
 ccd523c059a78328:gitlab  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
