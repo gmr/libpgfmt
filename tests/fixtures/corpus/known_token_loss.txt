@@ -4,7 +4,6 @@
 # dropped. Remove a line when the statement is fixed; the test fails if a
 # listed statement stops losing content, so this list cannot go stale.
 
-0e204671b17877d3  drops: 3 [ 3 ]
 0f5d2aefe1a0b324  drops: cast ( as )
 109898801ef1e75d  drops: ( year from logdate ( month from logdate ) )
 134827d89a3556fb  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
@@ -15,7 +14,6 @@
 2f58e365c2514681  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 339f924f4db15318  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
 3c575c83f95669a9  drops: with ( security_barrier )
-3cd2d3335b434771  drops: hour to minute
 3fd21b875a5c85aa  drops: ( v order by v desc )
 4dc429af639201e3  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4e84c0a09deba0de  drops: where current of c_films
@@ -24,20 +22,16 @@
 6031e25d1b0e22e6  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 628c948273a10f52  drops: union all n + 1 where n < 100 select ( n ) from t
 699860c58c5a0243  drops: limit 10000
-709eea1f241b4e90  drops: hour to minute
 71f57c93dcef83a7  drops: ( t. * , 42 )
 7e1dcb11cd19078f  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 80f0fb3ee4a2ac6a  drops: as d
-817e167aa71df17b  drops: hour to minute
 8917c72da6ee57ec  drops: into myrec
 8a2d5541685d80b8  drops: into films_recent
 8dcafae935966dce  drops: ?
-9cacaf801690a75e  drops: hour to minute
 9e0486f07dfb893a  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
 ac4548861c422ac8  drops: and this one - -
 b157aea1efdc87ca  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 b5beba9cfeff07e3  drops: where current of curs1
-b969f5765f5dad8b  drops: [ ]
 bf59ab5c10593c42  drops: with local check option
 c0370af45f1e65a4  drops: end$$
 c06277f560204556  drops: - -
@@ -50,8 +44,6 @@ d8765d8dffda59ef  drops: limit 5000
 d9a78e7b01c8e0a7  drops: with ordinality
 e026fa0c46c28449  drops: id link data depth ( g.f1 g.f2 , , , , ( g.f1 , g.f2 ) ( ) , path (...
 e59fc5a348a37823  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
-e67540ee9394cbde  drops: [ ]
-e8b8e5031290751d  drops: [ ]
 ebc920835ba820c5  drops: ' $$;
 efab3107705a4df7  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 f0021d76e51309d0  drops: where current of c_tasks

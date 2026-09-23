@@ -1214,7 +1214,7 @@ impl<'a> Formatter<'a> {
         let mut parts = Vec::new();
         let mut cursor = node.walk();
         let mut has_setof = false;
-        let mut has_array = false;
+        let mut array_bounds = String::new();
         for child in node.children(&mut cursor) {
             if child.is_named() {
                 match child.kind() {
@@ -1222,7 +1222,12 @@ impl<'a> Formatter<'a> {
                     "kw_setof" => {
                         has_setof = true;
                     }
-                    "opt_array_bounds" => has_array = true,
+                    // Keep the bounds as written: `int[3][3]`, not `int[]`.
+                    // PostgreSQL does not enforce them, but they are the
+                    // author's documentation of the shape.
+                    "opt_array_bounds" => {
+                        array_bounds = self.text(child).split_whitespace().collect();
+                    }
                     _ => parts.push(self.format_expr(child)),
                 }
             }
@@ -1233,9 +1238,7 @@ impl<'a> Formatter<'a> {
             result.push(' ');
         }
         result.push_str(&parts.join(" "));
-        if has_array {
-            result.push_str("[]");
-        }
+        result.push_str(&array_bounds);
         result
     }
 
@@ -1243,12 +1246,37 @@ impl<'a> Formatter<'a> {
         let mut cursor = node.walk();
         if let Some(child) = node.named_children(&mut cursor).next() {
             return match child.kind() {
-                "Numeric" | "GenericType" | "Bit" | "Character" | "ConstDatetime"
-                | "ConstInterval" => self.format_typename_inner(child),
+                "ConstInterval" => self.format_interval_type(node, child),
+                "Numeric" | "GenericType" | "Bit" | "Character" | "ConstDatetime" => {
+                    self.format_typename_inner(child)
+                }
                 _ => self.format_expr(child),
             };
         }
         self.text(node).to_string()
+    }
+
+    /// An INTERVAL type with its precision and field qualifier.
+    ///
+    /// Both are siblings of `ConstInterval`, not children of it, and both
+    /// change the type: `INTERVAL HOUR TO MINUTE` discards seconds and
+    /// `INTERVAL(3)` rounds to milliseconds -- see
+    /// https://github.com/gmr/libpgfmt/issues/58.
+    fn format_interval_type(&self, node: Node<'a>, interval: Node<'a>) -> String {
+        let mut out = self.format_typename_inner(interval);
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor).skip(1) {
+            match child.kind() {
+                "Iconst" => out.push_str(&format!("({})", self.text(child).trim())),
+                "opt_interval" => {
+                    // `SECOND(2)`: the precision belongs to the field.
+                    out.push(' ');
+                    out.push_str(&self.render_clause_inline(child).replace(" (", "("));
+                }
+                _ => {}
+            }
+        }
+        out
     }
 
     /// Flatten the wrapper nodes the grammar inserts for character/bit types

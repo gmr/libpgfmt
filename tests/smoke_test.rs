@@ -775,3 +775,24 @@ fn column_target_indirection_preserved() {
         }
     }
 }
+
+// Interval precision and field qualifiers change the type, so they must
+// survive in column definitions and casts alike.
+#[test]
+fn interval_qualifiers_and_array_bounds_preserved() {
+    let result = format(
+        "CREATE TABLE t (a interval hour to minute, b interval(3), c interval second(2), d int[3][3])",
+        Style::River,
+    )
+    .unwrap();
+    for piece in [
+        "INTERVAL HOUR TO MINUTE",
+        "INTERVAL(3)",
+        "INTERVAL SECOND(2)",
+        "INTEGER[3][3]",
+    ] {
+        assert!(result.contains(piece), "missing {piece:?}\nGot:\n{result}");
+    }
+    let cast = format("SELECT x::interval(3)", Style::River).unwrap();
+    assert!(cast.contains("INTERVAL(3)"), "Got:\n{cast}");
+}
