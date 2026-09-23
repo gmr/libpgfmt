@@ -6,7 +6,7 @@
 //! load-bearing. This module gives those passes one shared notion of where
 //! such a span starts and ends.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 /// What a scanned span is, so a caller can treat literals and comments
 /// differently.
@@ -151,9 +151,12 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
 /// continues a multi-line literal is indented with the rest, which changes
 /// the literal's value -- and changes it again on every pass. Rather than
 /// teach each of those sites about literals, this runs once over the result.
-/// Literals are matched by content, not position, so it holds when the
-/// formatter reorders clauses; one it changed on purpose, beyond whitespace,
-/// matches nothing and is left alone. Dollar-quoted bodies are excluded:
+/// Literals are matched by content, then by order among those with the same
+/// content. One the formatter changed on purpose, beyond whitespace, matches
+/// nothing and is left alone. A statement whose clauses the formatter
+/// reorders (table constraints, say) can still pair two literals that differ
+/// only in whitespace wrongly, when layout also changed one of them; telling
+/// them apart would need each output literal's source position. Dollar-quoted bodies are excluded:
 /// their re-indentation is deliberate and decided where the body is
 /// rendered. See https://github.com/gmr/libpgfmt/issues/57.
 pub(crate) fn restore_literals(source: &str, output: &str) -> String {
@@ -163,15 +166,6 @@ pub(crate) fn restore_literals(source: &str, output: &str) -> String {
         .into_iter()
         .map(|(start, end)| source_chars[start..end].iter().collect())
         .collect();
-    // Each original's index, queued in source order under its exact text and
-    // under its key, so a match takes the first unclaimed one without a scan.
-    let mut by_text: HashMap<&str, VecDeque<usize>> = HashMap::new();
-    let mut by_key: HashMap<String, VecDeque<usize>> = HashMap::new();
-    for (i, original) in originals.iter().enumerate() {
-        by_text.entry(original.as_str()).or_default().push_back(i);
-        by_key.entry(key(original)).or_default().push_back(i);
-    }
-    let mut claimed = vec![false; originals.len()];
     let chars: Vec<char> = output.chars().collect();
     let spans = quoted_spans(output);
     let texts: Vec<String> = spans
@@ -179,27 +173,32 @@ pub(crate) fn restore_literals(source: &str, output: &str) -> String {
         .map(|&(start, end)| chars[start..end].iter().collect())
         .collect();
 
-    // Unchanged literals claim their original first, so a changed one cannot
-    // take the spelling that belongs to an identical literal elsewhere.
-    let mut replacement: Vec<Option<String>> = vec![None; spans.len()];
-    for (i, text) in texts.iter().enumerate() {
-        if let Some(pos) = by_text.get_mut(text.as_str()).and_then(VecDeque::pop_front) {
-            claimed[pos] = true;
-            replacement[i] = Some(text.clone());
-        }
+    // Group the originals and the output literals by key, each in order.
+    let mut groups: HashMap<String, (Vec<usize>, Vec<usize>)> = HashMap::new();
+    for (i, original) in originals.iter().enumerate() {
+        groups.entry(key(original)).or_default().0.push(i);
     }
     for (i, text) in texts.iter().enumerate() {
-        if replacement[i].is_some() {
-            continue;
+        if let Some(group) = groups.get_mut(&key(text)) {
+            group.1.push(i);
         }
-        let Some(queue) = by_key.get_mut(&key(text)) else {
-            continue;
-        };
-        while let Some(pos) = queue.pop_front() {
-            if !claimed[pos] {
-                claimed[pos] = true;
-                replacement[i] = Some(originals[pos].clone());
-                break;
+    }
+
+    // Layout only adds whitespace, so a group whose output literals are the
+    // originals over again was not changed, only perhaps reordered: leave it.
+    // Otherwise the n-th output literal takes the n-th original, as the
+    // formatter keeps literals in source order. Matching exact text first is
+    // wrong here: layout can indent a literal until it equals a different
+    // one, and the two then swap values.
+    let mut replacement: Vec<Option<&str>> = vec![None; spans.len()];
+    for (sources, outputs) in groups.values() {
+        let mut want: Vec<&str> = sources.iter().map(|&i| originals[i].as_str()).collect();
+        let mut have: Vec<&str> = outputs.iter().map(|&i| texts[i].as_str()).collect();
+        want.sort_unstable();
+        have.sort_unstable();
+        if want != have {
+            for (&o, &s) in outputs.iter().zip(sources) {
+                replacement[o] = Some(&originals[s]);
             }
         }
     }
@@ -209,7 +208,7 @@ pub(crate) fn restore_literals(source: &str, output: &str) -> String {
     for (&(start, end), replacement) in spans.iter().zip(replacement) {
         out.extend(&chars[last..start]);
         match replacement {
-            Some(text) => out.push_str(&text),
+            Some(text) => out.push_str(text),
             None => out.extend(&chars[start..end]),
         }
         last = end;
@@ -472,6 +471,17 @@ mod tests {
         );
         // A literal changed beyond whitespace is left alone.
         assert_eq!(restore_literals("SELECT 'a'", "SELECT 'b'"), "SELECT 'b'");
+        // Layout indents the first literal until it equals the second one as
+        // written; each still gets its own spelling back.
+        assert_eq!(
+            restore_literals("f('p\nq', 'p\n  q')", "f('p\n  q',\n  'p\n    q')"),
+            "f('p\nq',\n  'p\n  q')"
+        );
+        // Reordered but not changed: left alone.
+        assert_eq!(
+            restore_literals("f('p\nq', 'p\n  q')", "f('p\n  q', 'p\nq')"),
+            "f('p\n  q', 'p\nq')"
+        );
         // Dollar-quoted bodies are not touched.
         assert_eq!(restore_literals("$$a\nb$$", "$$a\n b$$"), "$$a\n b$$");
     }
