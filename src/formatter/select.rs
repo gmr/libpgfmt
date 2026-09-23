@@ -1758,7 +1758,7 @@ impl<'a> Formatter<'a> {
     /// declare, and the MATERIALIZED hint; the trailer carries the SEARCH and
     /// CYCLE clauses. All of them change what the CTE means, so none may be
     /// dropped -- see https://github.com/gmr/libpgfmt/issues/58.
-    fn format_cte_header(&self, node: Node<'a>) -> (String, String) {
+    pub(crate) fn format_cte_header(&self, node: Node<'a>) -> (String, String) {
         let name = node
             .find_child("name")
             .map(|n| self.format_expr(n))
@@ -1827,6 +1827,7 @@ impl<'a> Formatter<'a> {
                 lines.push(format!("{with_kw}\n"));
             }
 
+            let mut prev_trailer = String::new();
             for (i, cte) in ctes.iter().enumerate() {
                 let (header, trailer) = self.format_cte_header(*cte);
 
@@ -1845,7 +1846,9 @@ impl<'a> Formatter<'a> {
                     .join("\n");
 
                 let cte_prefix = if self.config.compact_ctes && i > 0 {
-                    format!("), {header}(")
+                    // Compact CTEs close each other: this `)` belongs to the
+                    // previous CTE, so its SEARCH/CYCLE goes here.
+                    format!("){prev_trailer}, {header}(")
                 } else {
                     let as_line = format!("{header}(");
                     if i == 0 && !self.config.blank_lines_between_clauses {
@@ -1881,10 +1884,11 @@ impl<'a> Formatter<'a> {
                         format!("){trailer},")
                     });
                 }
+                prev_trailer = trailer;
             }
 
             if self.config.compact_ctes {
-                lines.push(")".to_string());
+                lines.push(format!("){prev_trailer}"));
             }
         }
         lines.join("\n")

@@ -44,8 +44,6 @@
 17b7c77a26a8bb11:mattmc3  drops: with cascaded check option
 17b7c77a26a8bb11:mozilla  drops: with cascaded check option
 17b7c77a26a8bb11:river  drops: with cascaded check option
-1a57537e0a64d74a:pg_dump  drops: ( manager_name , ) distance , employee_name
-21b4ece4930c76a0:pg_dump  drops: id link data ( , , , ) path
 2a84d9f893675a4a:aweber  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
 2a84d9f893675a4a:dbt  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
 2a84d9f893675a4a:gitlab  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
@@ -89,8 +87,6 @@
 3fd21b875a5c85aa:mozilla  drops: order by v desc
 3fd21b875a5c85aa:pg_dump  drops: values ( 1 , ( 3 ) , ( 4 ) , ( 3 ) , ( 2 ) ) ( v )
 3fd21b875a5c85aa:river  drops: order by v desc
-45d22ed1c9f831ed:pg_dump  drops: id link data ( , , , ) depth
-489c13db31bc75fd:pg_dump  drops: ( ) n
 4dc429af639201e3:aweber  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4dc429af639201e3:dbt  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4dc429af639201e3:gitlab  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
@@ -124,9 +120,6 @@
 628c948273a10f52:pg_dump  drops: values ( 1 ) ( n )
 628c948273a10f52:river  drops: union all + 1 where n < 100 select n from t
 66fa8600e72a6365:pg_dump  drops: values ( '192.168.0.1' : : inet , ( '192.168.0.10' ) , ( '192.168.1...
-6d1a47ebc1e01d47:kickstarter  drops: search depth first id set by ordercol
-6d1a47ebc1e01d47:pg_dump  drops: id link data ( , , ) search depth first id set by ordercol
-6de4351632222e15:pg_dump  drops: id link data depth , , , ( , path , is_cycle )
 71f57c93dcef83a7:aweber  drops: ( t. * , 42 )
 71f57c93dcef83a7:dbt  drops: ( t. * , 42 )
 71f57c93dcef83a7:gitlab  drops: ( t. * , 42 )
@@ -171,7 +164,6 @@
 8dcafae935966dce:mattmc3  drops: ?
 8dcafae935966dce:mozilla  drops: ?
 8dcafae935966dce:river  drops: ?
-93b22e40aae57fff:pg_dump  drops: id link data ( , , )
 99966339a62287c5:pg_dump  drops: values ( 1 , 'one' ) , ( 2 , 'two' ) , ( 3 , 'three' )
 9ac77a685f357585:pg_dump  drops: for update
 9e0486f07dfb893a:aweber  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
@@ -181,7 +173,6 @@
 9e0486f07dfb893a:mattmc3  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
 9e0486f07dfb893a:mozilla  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
 9e0486f07dfb893a:river  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
-9facaf9be78f7210:pg_dump  drops: id link data depth ( , , , )
 ac4548861c422ac8:aweber  drops: and this one - -
 ac4548861c422ac8:dbt  drops: and this one - -
 ac4548861c422ac8:gitlab  drops: and this one - -
@@ -189,9 +180,6 @@ ac4548861c422ac8:kickstarter  drops: and this one - -
 ac4548861c422ac8:mattmc3  drops: and this one - -
 ac4548861c422ac8:mozilla  drops: and this one - -
 ac4548861c422ac8:river  drops: and this one - -
-ad1a34e61b606d82:kickstarter  drops: cycle id set is_cycle using path
-ad1a34e61b606d82:pg_dump  drops: id link data depth ( , , , ) cycle id set is_cycle using path
-affd272dfd869431:pg_dump  drops: not materialized
 b157aea1efdc87ca:aweber  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 b157aea1efdc87ca:dbt  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 b157aea1efdc87ca:gitlab  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
@@ -235,7 +223,6 @@ c443608aa60a0d8c:gitlab  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c443608aa60a0d8c:kickstarter  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c443608aa60a0d8c:mattmc3  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c443608aa60a0d8c:mozilla  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
-c443608aa60a0d8c:pg_dump  drops: id link data , ( , , ) path
 c443608aa60a0d8c:river  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c486c470512f97cf:pg_dump  drops: for update
 c78ba85af91a4f0b:aweber  drops: using ~ < ~
@@ -275,7 +262,6 @@ e026fa0c46c28449:gitlab  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
 e026fa0c46c28449:kickstarter  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
 e026fa0c46c28449:mattmc3  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
 e026fa0c46c28449:mozilla  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
-e026fa0c46c28449:pg_dump  drops: id link data depth , , , path ( , , is_cycle )
 e026fa0c46c28449:river  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
 e59fc5a348a37823:aweber  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
 e59fc5a348a37823:dbt  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...

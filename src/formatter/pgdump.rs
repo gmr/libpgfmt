@@ -444,12 +444,9 @@ impl<'a> Formatter<'a> {
         let ctes = flatten_list(list, "cte_list");
         let last = ctes.len().saturating_sub(1);
         for (i, cte) in ctes.iter().enumerate() {
-            let name = cte
-                .find_child("name")
-                .map(|n| self.collapse_ws(self.text(n)))
-                .unwrap_or_default();
-            s.push_str(&name);
-            s.push_str(" AS (");
+            let (header, trailer) = self.format_cte_header(*cte);
+            s.push_str(&header);
+            s.push('(');
             let body = cte
                 .find_child("PreparableStmt")
                 .and_then(|p| p.find_child("SelectStmt"))
@@ -470,6 +467,8 @@ impl<'a> Formatter<'a> {
             s.push('\n');
             s.push_str(&close);
             s.push(')');
+            // ruleutils puts SEARCH and CYCLE on the closing line.
+            s.push_str(&trailer.replace('\n', " "));
             if i != last {
                 s.push_str(", ");
             }
