@@ -1283,3 +1283,22 @@ fn comment_only_input() {
         assert_eq!(format(";", style).unwrap(), "");
     }
 }
+
+// River style moves table constraints after the columns. Two literals that
+// differ only in whitespace keep their own values through that reorder.
+#[test]
+fn reordered_table_elements_keep_their_literals() {
+    let sql = "CREATE TABLE t (CONSTRAINT c CHECK (b <> 'p\n  q'), b text DEFAULT 'p\nq')";
+    for &style in Style::ALL {
+        let once = format(sql, style).unwrap().to_lowercase();
+        let after = |marker: &str| once.split(marker).nth(1).unwrap_or_default().to_string();
+        assert!(
+            after("default ").starts_with("'p\nq'"),
+            "\nStyle: {style}\nGot:\n{once}"
+        );
+        assert!(
+            after("<> ").starts_with("'p\n  q'"),
+            "\nStyle: {style}\nGot:\n{once}"
+        );
+    }
+}

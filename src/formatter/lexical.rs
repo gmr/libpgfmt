@@ -153,10 +153,10 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
 /// teach each of those sites about literals, this runs once over the result.
 /// Literals are matched by content, then by order among those with the same
 /// content. One the formatter changed on purpose, beyond whitespace, matches
-/// nothing and is left alone. A statement whose clauses the formatter
-/// reorders (table constraints, say) can still pair two literals that differ
-/// only in whitespace wrongly, when layout also changed one of them; telling
-/// them apart would need each output literal's source position. Dollar-quoted bodies are excluded:
+/// nothing and is left alone. Where the formatter reorders parts of a
+/// statement, it must restore each part before the reorder, as river-style
+/// CREATE TABLE does: otherwise two literals that differ only in whitespace
+/// can be paired wrongly when layout also changed one of them. Dollar-quoted bodies are excluded:
 /// their re-indentation is deliberate and decided where the body is
 /// rendered. See https://github.com/gmr/libpgfmt/issues/57.
 pub(crate) fn restore_literals(source: &str, output: &str) -> String {

@@ -803,21 +803,25 @@ impl<'a> Formatter<'a> {
             if self.config.river {
                 // River style: PRIMARY KEY first, padded columns, constraint
                 // on separate indented line.
-                let mut pk_elements: Vec<(String, Vec<String>)> = Vec::new();
-                let mut col_elements: Vec<(String, String, String, Vec<String>)> = Vec::new();
-                let mut constraint_elements: Vec<(Option<String>, String, Vec<String>)> =
+                // Each element keeps its source text, so that its literals can
+                // be restored before the reordering below: see
+                // lexical::restore_literals.
+                let mut pk_elements: Vec<(String, Vec<String>, &str)> = Vec::new();
+                let mut col_elements: Vec<(String, String, String, Vec<String>, &str)> = Vec::new();
+                let mut constraint_elements: Vec<(Option<String>, String, Vec<String>, &str)> =
                     Vec::new();
 
                 for (elem_node, comments) in &grouped {
+                    let src = self.text(*elem_node);
                     match self.classify_table_element(*elem_node) {
                         TableElementKind::PrimaryKey(text) => {
-                            pk_elements.push((text, comments.clone()));
+                            pk_elements.push((text, comments.clone(), src));
                         }
                         TableElementKind::Column(name, typename, constraints) => {
-                            col_elements.push((name, typename, constraints, comments.clone()));
+                            col_elements.push((name, typename, constraints, comments.clone(), src));
                         }
                         TableElementKind::Constraint(name, body) => {
-                            constraint_elements.push((name, body, comments.clone()));
+                            constraint_elements.push((name, body, comments.clone(), src));
                         }
                     }
                 }
@@ -836,11 +840,11 @@ impl<'a> Formatter<'a> {
 
                 // Build ordered list of (rendered item, trailing comments):
                 // PKs first, then columns, then constraints.
-                let mut all_items: Vec<(String, Vec<String>)> = Vec::new();
-                for (pk, comments) in &pk_elements {
-                    all_items.push((pk.clone(), comments.clone()));
+                let mut all_items: Vec<(String, Vec<String>, &str)> = Vec::new();
+                for (pk, comments, src) in &pk_elements {
+                    all_items.push((pk.clone(), comments.clone(), src));
                 }
-                for (name, typename, constraints, comments) in &col_elements {
+                for (name, typename, constraints, comments, src) in &col_elements {
                     all_items.push((
                         render_aligned_column(
                             name,
@@ -850,11 +854,12 @@ impl<'a> Formatter<'a> {
                             max_type_len,
                         ),
                         comments.clone(),
+                        src,
                     ));
                 }
                 // Table constraints: CONSTRAINT name on one line,
                 // CHECK(...) on the next, both aligned with the type column.
-                for (name, body, comments) in &constraint_elements {
+                for (name, body, comments, src) in &constraint_elements {
                     let constraint_padding = " ".repeat(max_name_len + 1);
                     if let Some(cname) = name {
                         all_items.push((
@@ -863,9 +868,14 @@ impl<'a> Formatter<'a> {
                                 self.kw("CONSTRAINT")
                             ),
                             comments.clone(),
+                            src,
                         ));
                     } else {
-                        all_items.push((format!("{constraint_padding}{body}"), comments.clone()));
+                        all_items.push((
+                            format!("{constraint_padding}{body}"),
+                            comments.clone(),
+                            src,
+                        ));
                     }
                 }
 
@@ -873,7 +883,7 @@ impl<'a> Formatter<'a> {
                 // comma on the last line (constraints span two lines).
                 let mut rendered: Vec<(Vec<String>, Vec<String>)> = Vec::new();
                 let total = all_items.len();
-                for (i, (item, comments)) in all_items.iter().enumerate() {
+                for (i, (item, comments, src)) in all_items.iter().enumerate() {
                     let comma = if i < total - 1 { "," } else { "" };
                     let mut phys: Vec<String> = Vec::new();
                     if item.contains('\n') {
@@ -888,6 +898,10 @@ impl<'a> Formatter<'a> {
                     } else {
                         phys.push(format!("{indent}{item}{comma}"));
                     }
+                    let phys = lexical::restore_literals(src, &phys.join("\n"))
+                        .split('\n')
+                        .map(String::from)
+                        .collect();
                     rendered.push((phys, comments.clone()));
                 }
 
