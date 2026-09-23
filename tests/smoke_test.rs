@@ -995,3 +995,22 @@ fn partition_key_expressions_preserved() {
         );
     }
 }
+
+// A function in FROM keeps WITH ORDINALITY, and ROWS FROM keeps its calls.
+#[test]
+fn function_in_from_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "SELECT * FROM unnest(a) WITH ORDINALITY AS t(x, n), ROWS FROM (f(1), g(2)) AS r",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        for piece in ["WITH ORDINALITY AS T(X, N)", "ROWS FROM (F(1), G(2)) AS R"] {
+            assert!(
+                result.contains(piece),
+                "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+            );
+        }
+    }
+}

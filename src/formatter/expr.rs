@@ -1677,6 +1677,10 @@ impl<'a> Formatter<'a> {
                 // TABLESAMPLE method(args) [REPEATABLE (n)]: flat keyword and
                 // punctuation, which format_expr reduced to a bare TABLESAMPLE.
                 "tablesample_clause" => parts.push(self.render_clause_inline(child)),
+                // A function in FROM, with WITH ORDINALITY, or ROWS FROM (...).
+                // format_expr kept only the call, or for ROWS FROM only `ROWS`
+                // -- see https://github.com/gmr/libpgfmt/issues/58.
+                "func_table" => parts.push(self.render_clause_inline(child)),
                 _ => parts.push(self.format_expr(child)),
             }
         }
