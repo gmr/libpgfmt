@@ -752,3 +752,26 @@ fn nested_recursive_cte_river_width() {
     }
     format(&result, Style::River).unwrap();
 }
+
+// A column target keeps its subscript or field. `SET a[4] = 1` writes one
+// element and `SET a = 1` writes the whole column. INSERT and MERGE INSERT
+// column lists use the same node, and the documentation corpus has no example
+// of them, so they are covered here.
+#[test]
+fn column_target_indirection_preserved() {
+    for sql in [
+        "UPDATE t SET a[4] = 1, b[1:2] = '{1,2}', h['c'] = '3', c.d = 1",
+        "INSERT INTO t (a[1], c.d) VALUES (1, 2)",
+        "MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT (a[1], c.d) VALUES (1, 2)",
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap();
+            for target in ["a[", "c.d"] {
+                assert!(
+                    result.contains(target),
+                    "\nStyle: {style}\nInput: {sql}\nmissing {target:?} in:\n{result}"
+                );
+            }
+        }
+    }
+}

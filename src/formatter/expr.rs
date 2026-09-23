@@ -185,7 +185,8 @@ impl<'a> Formatter<'a> {
             "ColId" => self.format_col_id(node),
             "ColLabel" => self.format_first_named_child(node),
             "qualified_name" | "any_name" => self.format_qualified_name(node),
-            "indirection" => self.format_indirection(node),
+            "indirection" | "opt_indirection" => self.format_indirection(node),
+            "set_target" | "insert_column_item" => self.format_column_target(node),
             "indirection_el" => self.format_indirection_el(node),
             "attr_name" => self.format_first_named_child(node),
             "relation_expr" => self.format_relation_expr(node),
@@ -537,6 +538,24 @@ impl<'a> Formatter<'a> {
             };
         }
         self.text(node).to_string()
+    }
+
+    /// A column an INSERT or UPDATE writes, plus any subscript or field it
+    /// writes into.
+    ///
+    /// `SET a[4] = 1` writes one element and `SET a = 1` writes the whole
+    /// column, so the indirection must survive -- see
+    /// https://github.com/gmr/libpgfmt/issues/58.
+    fn format_column_target(&self, node: Node<'a>) -> String {
+        let column = node
+            .find_child("ColId")
+            .map(|n| self.format_expr(n))
+            .unwrap_or_default();
+        let indirection = node
+            .find_child("opt_indirection")
+            .map(|n| self.format_indirection(n))
+            .unwrap_or_default();
+        format!("{column}{indirection}")
     }
 
     fn format_indirection(&self, node: Node<'a>) -> String {

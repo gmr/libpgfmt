@@ -9,18 +9,15 @@
 109898801ef1e75d  drops: ( year from logdate ( month from logdate ) )
 134827d89a3556fb  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
 13beaab7380bf501  drops: order by a
-14232e2a16d85fc2  drops: [ 4 ]
 17b7c77a26a8bb11  drops: with cascaded check option
 2a84d9f893675a4a  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
 2dce8ac7d621b9e2  drops: ( c.name , c.supplier_id , c.price )
 2f58e365c2514681  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
-32b068fa73d2e8bd  drops: complex_col.r complex_col.i
 339f924f4db15318  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
 3c575c83f95669a9  drops: with ( security_barrier )
 3cd2d3335b434771  drops: hour to minute
 3fd21b875a5c85aa  drops: ( v order by v desc )
 4dc429af639201e3  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4ddfba434e7ee0c1  drops: [ 1 : 2 ]
 4e84c0a09deba0de  drops: where current of c_films
 4f2aa9162cd37215  drops: 2 'two' union all select ,
 4f2aa9162cd37215  drops: 2 'two' union all select ,
@@ -30,7 +27,6 @@
 709eea1f241b4e90  drops: hour to minute
 71f57c93dcef83a7  drops: ( t. * , 42 )
 7e1dcb11cd19078f  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
-7ff3b0d2098d338f  drops: [ 'c' ]
 80f0fb3ee4a2ac6a  drops: as d
 817e167aa71df17b  drops: hour to minute
 8917c72da6ee57ec  drops: into myrec
