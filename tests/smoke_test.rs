@@ -796,3 +796,21 @@ fn interval_qualifiers_and_array_bounds_preserved() {
     let cast = format("SELECT x::interval(3)", Style::River).unwrap();
     assert!(cast.contains("INTERVAL(3)"), "Got:\n{cast}");
 }
+
+// Dropping `WHERE CURRENT OF` turns a write to the row under a cursor into a
+// write to every row in the table.
+#[test]
+fn where_current_of_preserved() {
+    for sql in [
+        "UPDATE films SET kind = 'Dramatic' WHERE CURRENT OF c_films",
+        "DELETE FROM tasks WHERE CURRENT OF c_tasks",
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap();
+            assert!(
+                result.contains("WHERE CURRENT OF c_") || result.contains("where current of c_"),
+                "\nStyle: {style}\nInput: {sql}\nGot:\n{result}"
+            );
+        }
+    }
+}

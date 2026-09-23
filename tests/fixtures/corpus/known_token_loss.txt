@@ -16,7 +16,6 @@
 3c575c83f95669a9  drops: with ( security_barrier )
 3fd21b875a5c85aa  drops: ( v order by v desc )
 4dc429af639201e3  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4e84c0a09deba0de  drops: where current of c_films
 4f2aa9162cd37215  drops: 2 'two' union all select ,
 4f2aa9162cd37215  drops: 2 'two' union all select ,
 6031e25d1b0e22e6  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
@@ -31,7 +30,6 @@
 9e0486f07dfb893a  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
 ac4548861c422ac8  drops: and this one - -
 b157aea1efdc87ca  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
-b5beba9cfeff07e3  drops: where current of curs1
 bf59ab5c10593c42  drops: with local check option
 c0370af45f1e65a4  drops: end$$
 c06277f560204556  drops: - -
@@ -46,6 +44,5 @@ e026fa0c46c28449  drops: id link data depth ( g.f1 g.f2 , , , , ( g.f1 , g.f2 ) 
 e59fc5a348a37823  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
 ebc920835ba820c5  drops: ' $$;
 efab3107705a4df7  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
-f0021d76e51309d0  drops: where current of c_tasks
 f88afb06373c7d6a  drops: cast ( as )
 ffc560c809694426  drops: ( 1 , 2.5 , 'this is a test' )

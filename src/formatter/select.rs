@@ -828,7 +828,28 @@ impl<'a> Formatter<'a> {
     }
 
     pub(crate) fn format_where_river(&self, node: Node<'a>, width: usize, lines: &mut Vec<String>) {
+        if let Some(cursor) = self.where_current_of(node) {
+            lines.push(self.river_line(&self.kw("WHERE"), &cursor, width));
+            return;
+        }
         self.format_condition_clause_river(node, "WHERE", width, lines);
+    }
+
+    /// `CURRENT OF cursor` when `node` is a positioned WHERE clause.
+    ///
+    /// It holds no expression, so the condition renderers find nothing in it,
+    /// and dropping it turns an UPDATE or DELETE of one row into one of every
+    /// row -- see https://github.com/gmr/libpgfmt/issues/58.
+    pub(crate) fn where_current_of(&self, node: Node<'a>) -> Option<String> {
+        if !node.has_child("kw_current") {
+            return None;
+        }
+        let cursor = node.find_child("cursor_name")?;
+        Some(format!(
+            "{} {}",
+            self.kw_pair("CURRENT", "OF"),
+            self.text(cursor).trim()
+        ))
     }
 
     fn format_having_river(&self, node: Node<'a>, width: usize, lines: &mut Vec<String>) {
@@ -1584,6 +1605,10 @@ impl<'a> Formatter<'a> {
     }
 
     pub(crate) fn format_where_left_aligned(&self, node: Node<'a>, lines: &mut Vec<String>) {
+        if let Some(cursor) = self.where_current_of(node) {
+            lines.push(format!("{} {cursor}", self.kw("WHERE")));
+            return;
+        }
         let indent = self.config.indent;
         if let Some(expr) = node.find_child_any(&["a_expr", "c_expr"]) {
             let conditions = self.split_top_level_conditions(expr);
