@@ -61,7 +61,7 @@ impl<'a> Formatter<'a> {
     /// canonical (single-line, single-spaced) deparser expressions; it folds
     /// the deparser's line breaks so the layout can be re-imposed.
     fn collapse_ws(&self, text: &str) -> String {
-        collapse_ws_preserving_continuations(text)
+        lexical::collapse_whitespace(text)
     }
 
     /// Like [`collapse_ws`] but keeps a single boundary space when the original
@@ -596,55 +596,4 @@ impl<'a> Formatter<'a> {
             behavior.clear();
         }
     }
-}
-
-/// Collapse whitespace runs to a single space, with two exceptions: a run that
-/// contains a newline and sits between two string constants is kept as a
-/// newline, and so is the newline that terminates a `--` comment.
-///
-/// PostgreSQL concatenates two string constants only when a line break
-/// separates them; on one line the adjacency is a syntax error. Collapsing
-/// that newline turns `SELECT 'foo'\n'bar'` into invalid SQL. Collapsing the
-/// newline after a `--` comment is worse: the comment then swallows the rest
-/// of the statement.
-fn collapse_ws_preserving_continuations(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut i = 0;
-    let mut after_line_comment = false;
-    while i < chars.len() {
-        let c = chars[i];
-        // String constants and comments are copied verbatim: their spacing is
-        // data in the one case and structure in the other.
-        if let Some((span, end)) = lexical::scan(&chars, i) {
-            out.extend(&chars[i..end]);
-            after_line_comment = span == lexical::Span::LineComment;
-            i = end;
-            continue;
-        }
-        if c.is_whitespace() {
-            let mut j = i;
-            let mut saw_newline = false;
-            while j < chars.len() && chars[j].is_whitespace() {
-                saw_newline |= chars[j] == '\n';
-                j += 1;
-            }
-            let between_literals =
-                saw_newline && out.ends_with('\'') && j < chars.len() && chars[j] == '\'';
-            if !out.is_empty() && j < chars.len() {
-                out.push(if between_literals || (saw_newline && after_line_comment) {
-                    '\n'
-                } else {
-                    ' '
-                });
-            }
-            after_line_comment = false;
-            i = j;
-            continue;
-        }
-        out.push(c);
-        after_line_comment = false;
-        i += 1;
-    }
-    out
 }

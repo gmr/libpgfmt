@@ -4,6 +4,7 @@ use crate::node_helpers::{NodeExt, flatten_list};
 use tree_sitter::Node;
 
 use super::Formatter;
+use super::lexical;
 
 /// Classification of table elements for river-style CREATE TABLE.
 enum TableElementKind {
@@ -36,7 +37,7 @@ impl<'a> Formatter<'a> {
                 }
                 _ => {
                     let text = self.text(child);
-                    normalize_whitespace_preserving_comments(text)
+                    normalize_whitespace(text)
                 }
             };
             let trimmed = result.trim_end_matches(';');
@@ -2123,146 +2124,11 @@ fn reindent_body(s: &str, indent: &str) -> String {
         .join("\n")
 }
 
-/// Collapse runs of whitespace to single spaces, but preserve whitespace
-/// inside single-quoted strings, double-quoted identifiers, and dollar-quoted
-/// strings so that literal content is not altered.
-/// Normalize whitespace, but keep the original line breaks when the statement
-/// contains a `--` line comment.
-///
-/// Collapsing newlines around a line comment folds everything after it into
-/// the comment, so a passed-through statement such as
-/// `EXECUTE PROCEDURE f(a, -- why\n b)` loses its tail and stops parsing.
-/// Each line is normalized on its own instead.
-pub(crate) fn normalize_whitespace_preserving_comments(s: &str) -> String {
-    if !has_line_comment(s) {
-        return normalize_whitespace(s);
-    }
-    s.lines()
-        .map(normalize_whitespace)
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Whether the text has a `--` line comment outside any string literal.
-fn has_line_comment(s: &str) -> bool {
-    let bytes: Vec<char> = s.chars().collect();
-    let mut i = 0;
-    let mut quote: Option<char> = None;
-    while i < bytes.len() {
-        let c = bytes[i];
-        match quote {
-            Some(q) => {
-                if c == q {
-                    quote = None;
-                }
-            }
-            None => {
-                if c == '\'' || c == '"' {
-                    quote = Some(c);
-                } else if c == '-' && i + 1 < bytes.len() && bytes[i + 1] == '-' {
-                    return true;
-                }
-            }
-        }
-        i += 1;
-    }
-    false
-}
-
+/// Collapse whitespace, keeping string constants, quoted identifiers and
+/// comments verbatim, and keeping the newlines that carry meaning: the one
+/// after a `--` comment, which would otherwise swallow the rest of the
+/// statement, and the one between two string constants, which PostgreSQL
+/// requires to join them. See [`lexical::collapse_whitespace`].
 pub(crate) fn normalize_whitespace(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let chars: Vec<char> = s.chars().collect();
-    let len = chars.len();
-    let mut i = 0;
-    let mut in_space_run = false;
-
-    while i < len {
-        let ch = chars[i];
-
-        // Single-quoted string.
-        if ch == '\'' {
-            in_space_run = false;
-            result.push(ch);
-            i += 1;
-            while i < len {
-                result.push(chars[i]);
-                if chars[i] == '\'' {
-                    i += 1;
-                    if i < len && chars[i] == '\'' {
-                        result.push(chars[i]);
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            continue;
-        }
-
-        // Double-quoted identifier.
-        if ch == '"' {
-            in_space_run = false;
-            result.push(ch);
-            i += 1;
-            while i < len {
-                result.push(chars[i]);
-                if chars[i] == '"' {
-                    i += 1;
-                    if i < len && chars[i] == '"' {
-                        result.push(chars[i]);
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            continue;
-        }
-
-        // Dollar-quoted string.
-        if ch == '$' {
-            let tag_start = i;
-            let mut tag_end = i + 1;
-            while tag_end < len && (chars[tag_end].is_ascii_alphanumeric() || chars[tag_end] == '_')
-            {
-                tag_end += 1;
-            }
-            if tag_end < len && chars[tag_end] == '$' {
-                in_space_run = false;
-                let tag: String = chars[tag_start..=tag_end].iter().collect();
-                result.push_str(&tag);
-                i = tag_end + 1;
-                while i < len {
-                    let remaining: String = chars[i..].iter().collect();
-                    if remaining.starts_with(&tag) {
-                        result.push_str(&tag);
-                        i += tag.len();
-                        break;
-                    }
-                    result.push(chars[i]);
-                    i += 1;
-                }
-                continue;
-            }
-        }
-
-        // Normal whitespace collapsing.
-        if ch.is_whitespace() {
-            if !in_space_run && !result.is_empty() {
-                result.push(' ');
-            }
-            in_space_run = true;
-            i += 1;
-        } else {
-            in_space_run = false;
-            result.push(ch);
-            i += 1;
-        }
-    }
-
-    result.trim().to_string()
+    lexical::collapse_whitespace(s)
 }

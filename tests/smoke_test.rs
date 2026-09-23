@@ -1037,3 +1037,33 @@ fn sort_operator_and_insert_alias_preserved() {
         );
     }
 }
+
+// https://github.com/gmr/libpgfmt/issues/61: pg_dump style terminates every
+// statement when there is more than one, including before a comment.
+#[test]
+fn pgdump_terminates_multiple_statements() {
+    for sql in [
+        "UPDATE t SET a = 1; DELETE FROM t; SELECT 1;",
+        "SET x = on;   -- the default\nSELECT 1;",
+    ] {
+        let once = format(sql, Style::PgDump).unwrap();
+        format(&once, Style::PgDump)
+            .unwrap_or_else(|e| panic!("\nInput: {sql}\nFormatted to:\n{once}\nWhich fails: {e}"));
+    }
+    // A lone statement stays as the deparser writes it.
+    let lone = format("UPDATE t SET a = 1", Style::PgDump).unwrap();
+    assert!(!lone.ends_with(';'), "Got:\n{lone}");
+}
+
+// A `--` comment inside a passed-through clause keeps its newline, so it does
+// not comment out the rest of the statement.
+#[test]
+fn line_comment_newline_preserved_in_passthrough() {
+    let sql = "CREATE FUNCTION f(\n    a IN int,\n    b OUT int,  -- passed back\n    c OUT int)\nAS $$ BEGIN b := a; c := a; END $$ LANGUAGE plpgsql";
+    for &style in Style::ALL {
+        let once = format(sql, style).unwrap();
+        format(&once, style).unwrap_or_else(|e| {
+            panic!("\nStyle: {style}\nFormatted to:\n{once}\nWhich fails: {e}")
+        });
+    }
+}

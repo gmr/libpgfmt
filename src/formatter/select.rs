@@ -2087,7 +2087,7 @@ fn newlines_inside_literal(content: &str) -> Vec<bool> {
     let mut i = 0;
     while i < chars.len() {
         if let Some((span, end)) = lexical::scan(&chars, i) {
-            let inside = span == lexical::Span::Literal;
+            let inside = matches!(span, lexical::Span::Literal | lexical::Span::Identifier);
             out.extend(chars[i..end].iter().filter(|c| **c == '\n').map(|_| inside));
             i = end;
             continue;

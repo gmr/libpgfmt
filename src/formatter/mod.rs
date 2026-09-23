@@ -191,6 +191,10 @@ impl<'a> Formatter<'a> {
     pub fn format_root(&self, root: Node<'a>) -> Result<String, FormatError> {
         let mut results = Vec::new();
         let mut cursor = root.walk();
+        let statements = root
+            .named_children(&mut root.walk())
+            .filter(|c| c.kind() == "toplevel_stmt")
+            .count();
         for child in root.named_children(&mut cursor) {
             if child.kind() == "toplevel_stmt" {
                 // Most statements are wrapped in a `stmt` node, but some parse
@@ -200,7 +204,18 @@ impl<'a> Formatter<'a> {
                 // either case so it is not silently dropped.
                 let stmt = child.find_child("stmt").unwrap_or(child);
                 if self.config.pg_dump {
-                    results.push(self.format_pgdump_stmt(stmt)?);
+                    let mut text = self.format_pgdump_stmt(stmt)?;
+                    // The deparser writes a lone statement without `;`, and
+                    // the pg_dump fixtures keep that, but a second statement
+                    // needs the first terminated or the two run together --
+                    // see https://github.com/gmr/libpgfmt/issues/61.
+                    if statements > 1 && !text.trim_end().ends_with(';') {
+                        if lexical::ends_in_line_comment(&text) {
+                            text.push('\n');
+                        }
+                        text.push(';');
+                    }
+                    results.push(text);
                 } else {
                     results.push(self.format_stmt(stmt)?);
                 }

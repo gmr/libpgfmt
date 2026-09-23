@@ -272,3 +272,30 @@ fn formatting_does_not_drop_content() {
         fixed.join("\n")
     );
 }
+
+/// Formatted output must parse. The token comparison cannot see a clause that
+/// survives as text but no longer as SQL -- a newline dropped after a `--`
+/// comment, so the comment swallows what follows, or a missing `;` between
+/// two statements. Re-formatting the output catches both.
+#[test]
+fn formatted_corpus_reparses() {
+    let mut failures = Vec::new();
+    for (statement, sql) in corpus() {
+        for &style in Style::ALL {
+            let Ok(formatted) = format(&sql, style) else {
+                continue;
+            };
+            if let Err(e) = format(&formatted, style) {
+                failures.push(format!(
+                    "\n{statement}:{style}\nInput:\n{sql}\nFormatted to:\n{formatted}\nWhich fails to parse: {e}"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} formatted statement(s) no longer parse:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
