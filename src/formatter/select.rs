@@ -60,9 +60,6 @@ impl<'a> Formatter<'a> {
         min_river_width: usize,
     ) -> String {
         let clauses = self.collect_select_clauses(node);
-        if clauses.values_clause.is_some() {
-            return self.format_values_only(&clauses);
-        }
         if self.config.river {
             self.format_select_river_with_min_width(&clauses, min_river_width)
         } else {
@@ -305,13 +302,6 @@ impl<'a> Formatter<'a> {
         String::new()
     }
 
-    fn format_values_only(&self, clauses: &SelectClauses<'a>) -> String {
-        if let Some(vc) = clauses.values_clause {
-            return self.format_values_clause(vc);
-        }
-        String::new()
-    }
-
     // ── River-style SELECT ──────────────────────────────────────────────
 
     fn format_select_river(&self, clauses: &SelectClauses<'a>) -> String {
@@ -370,7 +360,12 @@ impl<'a> Formatter<'a> {
         } else {
             None
         };
-        if let Some(branch) = clauses.parenthesized {
+        // A VALUES list takes the place of SELECT and its targets. It used to
+        // be returned on its own, dropping any WITH, set operation, ORDER BY
+        // or LIMIT around it -- see https://github.com/gmr/libpgfmt/issues/58.
+        if let Some(values) = clauses.values_clause {
+            lines.push(self.format_values_clause(values));
+        } else if let Some(branch) = clauses.parenthesized {
             lines.push(self.format_select_with_parens(branch));
         } else {
             self.append_river_targets_with_prefix(
@@ -1393,7 +1388,9 @@ impl<'a> Formatter<'a> {
             self.kw("SELECT")
         };
 
-        if let Some(branch) = clauses.parenthesized {
+        if let Some(values) = clauses.values_clause {
+            lines.push(self.format_values_clause(values));
+        } else if let Some(branch) = clauses.parenthesized {
             lines.push(self.format_select_with_parens(branch));
         } else if clauses.targets.len() <= 1 {
             let target_text = clauses

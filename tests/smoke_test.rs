@@ -942,3 +942,21 @@ fn set_operation_branches_preserved() {
         );
     }
 }
+
+// A VALUES list was returned on its own, dropping everything around it.
+#[test]
+fn values_keeps_surrounding_clauses() {
+    for &style in Style::ALL {
+        for (sql, piece) in [
+            ("VALUES (1), (2) ORDER BY 1 LIMIT 1", "LIMIT 1"),
+            ("WITH x AS (SELECT 1) VALUES (1)", "X AS ("),
+            ("VALUES (1) UNION ALL SELECT 2", "SELECT 2"),
+        ] {
+            let result = format(sql, style).unwrap().to_uppercase();
+            assert!(
+                result.contains(piece),
+                "\nStyle: {style}\nInput: {sql}\nmissing {piece:?} in:\n{result}"
+            );
+        }
+    }
+}

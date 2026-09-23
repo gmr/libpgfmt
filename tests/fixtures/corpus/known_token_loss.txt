@@ -56,13 +56,6 @@
 339f924f4db15318:mattmc3  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
 339f924f4db15318:mozilla  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
 339f924f4db15318:river  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
-4dc429af639201e3:aweber  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4dc429af639201e3:dbt  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4dc429af639201e3:gitlab  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4dc429af639201e3:kickstarter  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4dc429af639201e3:mattmc3  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4dc429af639201e3:mozilla  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4dc429af639201e3:river  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 6031e25d1b0e22e6:aweber  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:dbt  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:gitlab  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
@@ -70,13 +63,6 @@
 6031e25d1b0e22e6:mattmc3  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:mozilla  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:river  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-628c948273a10f52:aweber  drops: union all + 1 where n < 100 select n from t
-628c948273a10f52:dbt  drops: union all + 1 where n < 100 select n from t
-628c948273a10f52:gitlab  drops: union all + 1 where n < 100 select n from t
-628c948273a10f52:kickstarter  drops: union all + 1 where n < 100 select n from t
-628c948273a10f52:mattmc3  drops: union all + 1 where n < 100 select n from t
-628c948273a10f52:mozilla  drops: union all + 1 where n < 100 select n from t
-628c948273a10f52:river  drops: union all + 1 where n < 100 select n from t
 71f57c93dcef83a7:aweber  drops: ( t. * , 42 )
 71f57c93dcef83a7:dbt  drops: ( t. * , 42 )
 71f57c93dcef83a7:gitlab  drops: ( t. * , 42 )
