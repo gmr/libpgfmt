@@ -25,7 +25,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use libpgfmt::{format, style::Style};
+use libpgfmt::{format, format_plpgsql, style::Style};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -383,6 +383,72 @@ fn formatted_corpus_is_a_fixed_point() {
     assert!(
         failures.is_empty(),
         "{} formatted statement(s) change when formatted again:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// The PL/pgSQL body of every corpus statement written in PL/pgSQL, as
+/// `(id, body)`: the dollar-quoted body of a CREATE FUNCTION or PROCEDURE
+/// that names `plpgsql`, or of a DO block. `format_plpgsql` formats these;
+/// `format` only re-lays them out, so the statement tests above never reach
+/// it.
+fn plpgsql_bodies() -> Vec<(String, String)> {
+    corpus()
+        .into_iter()
+        .filter_map(|(_, sql)| {
+            let lower = sql.to_lowercase();
+            if !lower.contains("plpgsql") && !lower.trim_start().starts_with("do") {
+                return None;
+            }
+            let chars: Vec<char> = sql.chars().collect();
+            let open = (0..chars.len()).find_map(|i| {
+                (chars[i] == '$' && (i == 0 || !chars[i - 1].is_alphanumeric()))
+                    .then(|| dollar_quote(&chars, i))
+                    .flatten()
+                    .map(|(body, close)| (i, body, close))
+            })?;
+            let (_, body_start, close) = open;
+            let body: String = chars[body_start..close].iter().collect();
+            let body = body.trim().to_string();
+            body.to_lowercase()
+                .contains("begin")
+                .then(|| (id(&body), body))
+        })
+        .collect()
+}
+
+/// `format_plpgsql` keeps every token of a body, its output parses, and a
+/// second pass changes nothing. See https://github.com/gmr/libpgfmt/issues/69.
+#[test]
+fn plpgsql_formatting_keeps_content_reparses_and_is_a_fixed_point() {
+    let mut failures = Vec::new();
+    for (body_id, body) in plpgsql_bodies() {
+        for &style in Style::ALL {
+            let Ok(once) = format_plpgsql(&body, style) else {
+                continue;
+            };
+            let missing = dropped(&body, &once);
+            if !missing.is_empty() {
+                failures.push(format!(
+                    "\n{body_id}:{style} drops {missing:?}\nInput:\n{body}\nFormatted to:\n{once}"
+                ));
+                continue;
+            }
+            match format_plpgsql(&once, style) {
+                Err(e) => failures.push(format!(
+                    "\n{body_id}:{style} no longer parses: {e}\nFormatted to:\n{once}"
+                )),
+                Ok(twice) if twice != once => failures.push(format!(
+                    "\n{body_id}:{style} changes on a second pass\nFirst:\n{once}\nSecond:\n{twice}"
+                )),
+                Ok(_) => {}
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} PL/pgSQL formatting failure(s):\n{}",
         failures.len(),
         failures.join("\n")
     );

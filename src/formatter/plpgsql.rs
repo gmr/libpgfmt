@@ -3,6 +3,7 @@ use crate::node_helpers::NodeExt;
 use tree_sitter::Node;
 
 use super::Formatter;
+use super::lexical;
 
 impl<'a> Formatter<'a> {
     /// Format a PL/pgSQL block.
@@ -13,6 +14,12 @@ impl<'a> Formatter<'a> {
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             match child.kind() {
+                // `<<label>>`, which EXIT, CONTINUE and qualified references
+                // name; dropping it left them naming nothing -- see
+                // https://github.com/gmr/libpgfmt/issues/69.
+                "block_label" => {
+                    lines.push(format!("{indent}{}", self.text(child).trim()));
+                }
                 "decl_sect" => {
                     lines.push(format!("{indent}{}", self.kw("DECLARE")));
                     self.format_decl_sect(child, indent_level + 1, &mut lines);
@@ -29,6 +36,13 @@ impl<'a> Formatter<'a> {
                 }
                 "kw_end" => {
                     lines.push(format!("{indent}{}", self.kw("END")));
+                }
+                // `END label`.
+                "end_label" => {
+                    if let Some(last) = lines.last_mut() {
+                        last.push(' ');
+                        last.push_str(self.text(child).trim());
+                    }
                 }
                 _ => {}
             }
@@ -66,6 +80,20 @@ impl<'a> Formatter<'a> {
                     self.kw("ALIAS"),
                     self.kw("FOR")
                 ));
+                return;
+            }
+
+            // Cursor declaration: name [[NO] SCROLL] CURSOR [(args)] FOR|IS
+            // query. Rendered as written after the name; the variable path
+            // below knows none of it and dropped the query.
+            if decl.has_child("kw_cursor") {
+                let rest_start = decl
+                    .find_child("decl_varname")
+                    .map_or(decl.start_byte(), |n| n.end_byte());
+                let rest = lexical::collapse_whitespace(
+                    self.source[rest_start..decl.end_byte()].trim_end_matches(';'),
+                );
+                lines.push(format!("{indent}{var_name} {rest};"));
                 return;
             }
 
@@ -154,9 +182,13 @@ impl<'a> Formatter<'a> {
                     let text = self.text(child).trim();
                     lines.push(format!("{indent}{text}"));
                 }
+                // A nested block is a statement and ends with `;`, which
+                // format_plpgsql_block leaves to its caller. Without it the
+                // next statement read as the block's end label -- see
+                // https://github.com/gmr/libpgfmt/issues/70.
                 "pl_block" => {
                     let block_text = self.format_plpgsql_block(child, indent_level);
-                    lines.push(block_text);
+                    lines.push(format!("{block_text};"));
                 }
                 _ => {
                     let text = self.text(child).trim();

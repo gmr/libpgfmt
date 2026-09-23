@@ -287,13 +287,24 @@ impl<'a> Formatter<'a> {
     /// Format a PL/pgSQL root node.
     pub fn format_plpgsql_root(&self, root: Node<'a>) -> Result<String, FormatError> {
         if let Some(block) = root.find_child("pl_block") {
+            // Compiler directives (`#variable_conflict use_variable`) precede
+            // the block at the root.
+            let mut lines: Vec<String> = root
+                .named_children_vec()
+                .into_iter()
+                .filter(|c| c.kind() == "comp_options")
+                .flat_map(|c| c.named_children_vec())
+                .map(|option| lexical::collapse_whitespace(self.text(option)))
+                .collect();
             let mut body = self.format_plpgsql_block(block, 0);
             // The outermost PL/pgSQL block should end with "END;" (semicolon
             // before the closing $$ delimiter).
             if !body.trim_end().ends_with(';') {
                 body.push(';');
             }
-            return Ok(body);
+            lines.push(body);
+            let body = lexical::restore_literals(self.text(root), &lines.join("\n"));
+            return Ok(self.restore_comments(root, body));
         }
         // Fallback: return normalized source.
         Ok(root.text(self.source).to_string())
