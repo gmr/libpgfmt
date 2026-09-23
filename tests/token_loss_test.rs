@@ -15,6 +15,12 @@
 //! the suite passes while they are worked off. The test fails both when a new
 //! statement starts losing content and when a listed one stops, so the list can
 //! only shrink and cannot go stale.
+//!
+//! To see every statement that still loses content, with its input and output:
+//!
+//! ```sh
+//! TOKEN_LOSS_REPORT=1 cargo test --test token_loss_test -- --nocapture
+//! ```
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -119,9 +125,13 @@ fn tokens(sql: &str) -> Vec<String> {
 fn canonicalize(tokens: &[String]) -> Vec<String> {
     // Multi-token spellings, longest first.
     const SEQUENCES: &[(&[&str], &str)] = &[
+        (&["timestamp", "with", "time", "zone"], "timestamptz"),
         (&["double", "precision"], "float8"),
         (&["character", "varying"], "varchar"),
         (&["!", "="], "<>"),
+        // The tokenizer splits every operator character, so `<>` in the
+        // output arrives as two tokens and must meet the rewritten `!=`.
+        (&["<", ">"], "<>"),
     ];
     // Type aliases PostgreSQL treats as the same type.
     const ALIASES: &[(&str, &str)] = &[
@@ -188,6 +198,9 @@ fn formatting_does_not_drop_content() {
             continue;
         }
         seen.push(id.clone());
+        if std::env::var_os("TOKEN_LOSS_REPORT").is_some() {
+            println!("{id}\nInput:\n{sql}\nFormatted to:\n{formatted}\nDropped: {missing:?}\n");
+        }
         if !known.contains_key(&id) {
             regressions.push(format!(
                 "\n{id}\nInput:\n{sql}\nFormatted to:\n{formatted}\nDropped: {missing:?}"

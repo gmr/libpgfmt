@@ -12,7 +12,6 @@
 14232e2a16d85fc2  drops: [ 4 ]
 17b7c77a26a8bb11  drops: with cascaded check option
 2a84d9f893675a4a  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
-2d811e4982e3530b  drops: <>
 2dce8ac7d621b9e2  drops: ( c.name , c.supplier_id , c.price )
 2f58e365c2514681  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 32b068fa73d2e8bd  drops: complex_col.r complex_col.i
@@ -30,15 +29,13 @@
 699860c58c5a0243  drops: limit 10000
 709eea1f241b4e90  drops: hour to minute
 71f57c93dcef83a7  drops: ( t. * , 42 )
-7dd9daf0099bc01e  drops: <>
 7e1dcb11cd19078f  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 7ff3b0d2098d338f  drops: [ 'c' ]
-80f0fb3ee4a2ac6a  drops: as d <>
+80f0fb3ee4a2ac6a  drops: as d
 817e167aa71df17b  drops: hour to minute
 8917c72da6ee57ec  drops: into myrec
 8a2d5541685d80b8  drops: into films_recent
 8dcafae935966dce  drops: ?
-9b9de1a050c9c2b8  drops: <>
 9cacaf801690a75e  drops: hour to minute
 9e0486f07dfb893a  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
 ac4548861c422ac8  drops: and this one - -
@@ -55,15 +52,12 @@ ccd523c059a78328  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ 
 d4dca78e451567da  drops: ( v order by v desc )
 d8765d8dffda59ef  drops: limit 5000
 d9a78e7b01c8e0a7  drops: with ordinality
-ddcc800717b0c3fa  drops: <>
 e026fa0c46c28449  drops: id link data depth ( g.f1 g.f2 , , , , ( g.f1 , g.f2 ) ( ) , path (...
 e59fc5a348a37823  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
 e67540ee9394cbde  drops: [ ]
 e8b8e5031290751d  drops: [ ]
 ebc920835ba820c5  drops: ' $$;
-ed87c505cdef04fe  drops: <>
 efab3107705a4df7  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 f0021d76e51309d0  drops: where current of c_tasks
-f7bd2a3af5c42fc6  drops: timestamptz
 f88afb06373c7d6a  drops: cast ( as )
 ffc560c809694426  drops: ( 1 , 2.5 , 'this is a test' )
