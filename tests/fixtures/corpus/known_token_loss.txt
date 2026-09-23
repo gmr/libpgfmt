@@ -1,8 +1,9 @@
 # Statements that still lose content when formatted. Tracked by issue #58.
 #
 # One `id:style` per line, from tests/token_loss_test.rs, with the issue
-# tracking it and a note naming what is dropped. Remove a line when the statement is fixed; the test fails
-# if a listed statement stops losing content, so this list cannot go stale.
+# tracking it and a note naming what is dropped. Remove a line when the
+# statement is fixed; the test fails if a listed statement stops losing
+# content, so this list cannot go stale.
 #
 # See every entry with its input and output:
 #   TOKEN_LOSS_REPORT=1 cargo test --test token_loss_test -- --nocapture
