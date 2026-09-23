@@ -7,7 +7,6 @@
 # See every entry with its input and output:
 #   TOKEN_LOSS_REPORT=1 cargo test --test token_loss_test -- --nocapture
 
-093fca44cacdfacb:pg_dump  drops: for update
 0f5d2aefe1a0b324:aweber  drops: cast ( as )
 0f5d2aefe1a0b324:dbt  drops: cast ( as )
 0f5d2aefe1a0b324:gitlab  drops: cast ( as )
@@ -36,7 +35,6 @@
 13beaab7380bf501:mattmc3  drops: order by a
 13beaab7380bf501:mozilla  drops: order by a
 13beaab7380bf501:river  drops: order by a
-177978d4d27e37e9:pg_dump  drops: values '123' , ( '\"abc\"' , ( '{\"a\": \"b\"}' ) , ( '[1,2]' ) , (...
 17b7c77a26a8bb11:aweber  drops: with cascaded check option
 17b7c77a26a8bb11:dbt  drops: with cascaded check option
 17b7c77a26a8bb11:gitlab  drops: with cascaded check option
@@ -85,7 +83,6 @@
 3fd21b875a5c85aa:kickstarter  drops: order by v desc
 3fd21b875a5c85aa:mattmc3  drops: order by v desc
 3fd21b875a5c85aa:mozilla  drops: order by v desc
-3fd21b875a5c85aa:pg_dump  drops: values ( 1 , ( 3 ) , ( 4 ) , ( 3 ) , ( 2 ) ) ( v )
 3fd21b875a5c85aa:river  drops: order by v desc
 4dc429af639201e3:aweber  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4dc429af639201e3:dbt  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
@@ -102,14 +99,12 @@
 4f2aa9162cd37215:mozilla  drops: 2 'two' union all select ,
 4f2aa9162cd37215:pg_dump  drops: 2 'two' union all select ,
 4f2aa9162cd37215:river  drops: 2 'two' union all select ,
-59957c21cc3c709a:pg_dump  drops: window w as ( partition by depname order by salary desc )
 6031e25d1b0e22e6:aweber  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:dbt  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:gitlab  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:kickstarter  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:mattmc3  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:mozilla  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-6031e25d1b0e22e6:pg_dump  drops: values '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]' ( )
 6031e25d1b0e22e6:river  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 628c948273a10f52:aweber  drops: union all + 1 where n < 100 select n from t
 628c948273a10f52:dbt  drops: union all + 1 where n < 100 select n from t
@@ -117,9 +112,7 @@
 628c948273a10f52:kickstarter  drops: union all + 1 where n < 100 select n from t
 628c948273a10f52:mattmc3  drops: union all + 1 where n < 100 select n from t
 628c948273a10f52:mozilla  drops: union all + 1 where n < 100 select n from t
-628c948273a10f52:pg_dump  drops: values ( 1 ) ( n )
 628c948273a10f52:river  drops: union all + 1 where n < 100 select n from t
-66fa8600e72a6365:pg_dump  drops: values ( '192.168.0.1' : : inet , ( '192.168.0.10' ) , ( '192.168.1...
 71f57c93dcef83a7:aweber  drops: ( t. * , 42 )
 71f57c93dcef83a7:dbt  drops: ( t. * , 42 )
 71f57c93dcef83a7:gitlab  drops: ( t. * , 42 )
@@ -164,8 +157,6 @@
 8dcafae935966dce:mattmc3  drops: ?
 8dcafae935966dce:mozilla  drops: ?
 8dcafae935966dce:river  drops: ?
-99966339a62287c5:pg_dump  drops: values ( 1 , 'one' ) , ( 2 , 'two' ) , ( 3 , 'three' )
-9ac77a685f357585:pg_dump  drops: for update
 9e0486f07dfb893a:aweber  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
 9e0486f07dfb893a:dbt  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
 9e0486f07dfb893a:gitlab  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
@@ -215,7 +206,6 @@ c406de5853f604d0:gitlab  drops: order by v
 c406de5853f604d0:kickstarter  drops: order by v
 c406de5853f604d0:mattmc3  drops: order by v
 c406de5853f604d0:mozilla  drops: order by v
-c406de5853f604d0:pg_dump  drops: values ( 'key0' , '1' , ( 'key1' , '3' ) , ( 'key1' , '2' ) ) ( k ,...
 c406de5853f604d0:river  drops: order by v
 c443608aa60a0d8c:aweber  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c443608aa60a0d8c:dbt  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
@@ -224,7 +214,6 @@ c443608aa60a0d8c:kickstarter  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c443608aa60a0d8c:mattmc3  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c443608aa60a0d8c:mozilla  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c443608aa60a0d8c:river  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
-c486c470512f97cf:pg_dump  drops: for update
 c78ba85af91a4f0b:aweber  drops: using ~ < ~
 c78ba85af91a4f0b:dbt  drops: using ~ < ~
 c78ba85af91a4f0b:gitlab  drops: using ~ < ~
@@ -240,14 +229,12 @@ ccd523c059a78328:mattmc3  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n   
 ccd523c059a78328:mozilla  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
 ccd523c059a78328:pg_dump  drops: '\";\n    };\n$$ LANGUAGE plperl;
 ccd523c059a78328:river  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-d47e9a63e960eb87:pg_dump  drops: values 'MGM' 'Horror' , ( 'UA' , 'Sci-Fi' ) ( , )
 d4dca78e451567da:aweber  drops: order by v desc
 d4dca78e451567da:dbt  drops: order by v desc
 d4dca78e451567da:gitlab  drops: order by v desc
 d4dca78e451567da:kickstarter  drops: order by v desc
 d4dca78e451567da:mattmc3  drops: order by v desc
 d4dca78e451567da:mozilla  drops: order by v desc
-d4dca78e451567da:pg_dump  drops: values ( 1 , ( 3 ) , ( 4 ) , ( 3 ) , ( 2 ) ) ( v )
 d4dca78e451567da:river  drops: order by v desc
 d9a78e7b01c8e0a7:aweber  drops: with ordinality
 d9a78e7b01c8e0a7:dbt  drops: with ordinality
@@ -292,7 +279,6 @@ f88afb06373c7d6a:kickstarter  drops: cast ( as )
 f88afb06373c7d6a:mattmc3  drops: cast ( as )
 f88afb06373c7d6a:mozilla  drops: cast ( as )
 f88afb06373c7d6a:river  drops: cast ( as )
-fb829c70d9748792:pg_dump  drops: values 1 1.0e20 : : float8 , ( 2 , 1.0 : : float8 ) ( , )
 ffc560c809694426:aweber  drops: ( 1 , 2.5 , 'this is a test' )
 ffc560c809694426:dbt  drops: ( 1 , 2.5 , 'this is a test' )
 ffc560c809694426:gitlab  drops: ( 1 , 2.5 , 'this is a test' )

@@ -814,3 +814,34 @@ fn where_current_of_preserved() {
         }
     }
 }
+
+// pg_dump style rendered every VALUES list as `SELECT *`, which tree-sitter
+// accepts and PostgreSQL rejects, and dropped WINDOW and FOR UPDATE.
+#[test]
+fn pgdump_keeps_values_window_and_locking() {
+    for (sql, piece) in [
+        (
+            "VALUES (1, 'one'), (2, 'two')",
+            "VALUES (1, 'one'), (2, 'two')",
+        ),
+        (
+            "SELECT * FROM t WHERE ip IN (VALUES (1), (2))",
+            "VALUES (1), (2)",
+        ),
+        (
+            "SELECT sum(x) OVER w FROM t WINDOW w AS (ORDER BY x)",
+            "WINDOW w AS (ORDER BY x)",
+        ),
+        (
+            "SELECT * FROM t FOR UPDATE SKIP LOCKED",
+            "FOR UPDATE SKIP LOCKED",
+        ),
+    ] {
+        let result = format(sql, Style::PgDump).unwrap();
+        assert!(result.contains(piece), "\nInput: {sql}\nGot:\n{result}");
+        assert!(
+            !result.contains("SELECT *)"),
+            "\nInput: {sql}\nGot:\n{result}"
+        );
+    }
+}

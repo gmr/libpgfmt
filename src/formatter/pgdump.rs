@@ -181,8 +181,16 @@ impl<'a> Formatter<'a> {
             s.push('\n');
         }
 
-        // SELECT [DISTINCT] target, target, ... (CASE targets render as blocks).
-        s.push_str(&self.pgdump_targets(c, depth));
+        // A VALUES list takes the place of SELECT and its targets. Rendering
+        // targets instead produced `SELECT *`, which PostgreSQL rejects --
+        // see https://github.com/gmr/libpgfmt/issues/58.
+        if let Some(values) = c.values_clause {
+            s.push_str(&" ".repeat(STEP * depth + 1));
+            s.push_str(&self.collapse_ws(self.text(values)));
+        } else {
+            // SELECT [DISTINCT] target, ... (CASE targets render as blocks).
+            s.push_str(&self.pgdump_targets(c, depth));
+        }
 
         // FROM
         if let Some(from) = c.from {
@@ -221,6 +229,13 @@ impl<'a> Formatter<'a> {
             s.push_str(&self.river_pad(6, depth));
             s.push_str("HAVING ");
             s.push_str(&self.render_expr_text(expr, depth));
+        }
+
+        // WINDOW
+        if let Some(w) = c.window_clause {
+            s.push('\n');
+            s.push_str(&self.river_pad(6, depth));
+            s.push_str(&self.collapse_ws(self.text(w)));
         }
 
         // Set operation (UNION / INTERSECT / EXCEPT): keyword at column 1, then
@@ -269,6 +284,11 @@ impl<'a> Formatter<'a> {
             s.push('\n');
             s.push_str(&limit_lead);
             s.push_str(&self.collapse_ws(self.text(lim)));
+        }
+        if let Some(lock) = c.for_locking {
+            s.push('\n');
+            s.push_str(&limit_lead);
+            s.push_str(&self.collapse_ws(self.text(lock)));
         }
 
         s
