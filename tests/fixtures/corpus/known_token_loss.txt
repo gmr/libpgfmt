@@ -8,13 +8,6 @@
 # See every entry with its input and output:
 #   TOKEN_LOSS_REPORT=1 cargo test --test token_loss_test -- --nocapture
 
-6031e25d1b0e22e6:aweber  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
-6031e25d1b0e22e6:dbt  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
-6031e25d1b0e22e6:gitlab  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
-6031e25d1b0e22e6:kickstarter  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
-6031e25d1b0e22e6:mattmc3  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
-6031e25d1b0e22e6:mozilla  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
-6031e25d1b0e22e6:river  [#57] drops: ["'[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'"]
 ac4548861c422ac8:aweber  [#62] drops: ["and", "this", "one", "-", "-"]
 ac4548861c422ac8:dbt  [#62] drops: ["and", "this", "one", "-", "-"]
 ac4548861c422ac8:gitlab  [#62] drops: ["and", "this", "one", "-", "-"]

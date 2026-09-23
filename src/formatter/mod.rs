@@ -203,8 +203,10 @@ impl<'a> Formatter<'a> {
                 // `TransactionStmtLegacy`). Format the inner statement in
                 // either case so it is not silently dropped.
                 let stmt = child.find_child("stmt").unwrap_or(child);
+                let source = self.text(stmt);
                 if self.config.pg_dump {
-                    let mut text = self.format_pgdump_stmt(stmt)?;
+                    let mut text =
+                        lexical::restore_literals(source, &self.format_pgdump_stmt(stmt)?);
                     // The deparser writes a lone statement without `;`, and
                     // the pg_dump fixtures keep that, but a second statement
                     // needs the first terminated or the two run together --
@@ -217,7 +219,7 @@ impl<'a> Formatter<'a> {
                     }
                     results.push(text);
                 } else {
-                    results.push(self.format_stmt(stmt)?);
+                    results.push(lexical::restore_literals(source, &self.format_stmt(stmt)?));
                 }
             } else if child.kind() == "comment" {
                 // Standalone comments between/around top-level statements are

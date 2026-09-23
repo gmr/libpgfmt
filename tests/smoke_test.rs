@@ -1172,3 +1172,19 @@ fn nested_error_node_is_rejected() {
         }
     }
 }
+
+// https://github.com/gmr/libpgfmt/issues/57: a newline inside a string
+// constant is data. Layout must not indent the line after it, and formatting
+// must be a fixed point for it.
+#[test]
+fn multiline_literal_is_not_reindented() {
+    let sql = "SELECT js FROM (VALUES ('[{\"a\":\"1\"},\n {\"b\":\"2\"}]')) foo(js)";
+    for &style in Style::ALL {
+        let once = format(sql, style).unwrap();
+        assert!(
+            once.contains("'[{\"a\":\"1\"},\n {\"b\":\"2\"}]'"),
+            "\nStyle: {style}\nGot:\n{once}"
+        );
+        assert_eq!(once, format(&once, style).unwrap(), "\nStyle: {style}");
+    }
+}

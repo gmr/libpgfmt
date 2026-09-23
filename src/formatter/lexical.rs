@@ -141,6 +141,83 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
     out
 }
 
+/// Put back the original spelling of every string constant and quoted
+/// identifier in `output` whose text differs from one in `source` only in
+/// whitespace.
+///
+/// Layout code indents formatted text line by line, and a line that
+/// continues a multi-line literal is indented with the rest, which changes
+/// the literal's value -- and changes it again on every pass. Rather than
+/// teach each of those sites about literals, this runs once over the result.
+/// Literals are matched by content, not position, so it holds when the
+/// formatter reorders clauses; one it changed on purpose, beyond whitespace,
+/// matches nothing and is left alone. Dollar-quoted bodies are excluded:
+/// their re-indentation is deliberate and decided where the body is
+/// rendered. See https://github.com/gmr/libpgfmt/issues/57.
+pub(crate) fn restore_literals(source: &str, output: &str) -> String {
+    let key = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let mut originals: Vec<String> = quoted_spans(source)
+        .into_iter()
+        .map(|(start, end)| source.chars().skip(start).take(end - start).collect())
+        .collect();
+    let chars: Vec<char> = output.chars().collect();
+    let spans = quoted_spans(output);
+    let texts: Vec<String> = spans
+        .iter()
+        .map(|&(start, end)| chars[start..end].iter().collect())
+        .collect();
+
+    // Unchanged literals claim their original first, so a changed one cannot
+    // take the spelling that belongs to an identical literal elsewhere.
+    let mut replacement: Vec<Option<String>> = vec![None; spans.len()];
+    for (i, text) in texts.iter().enumerate() {
+        if let Some(pos) = originals.iter().position(|o| o == text) {
+            originals.remove(pos);
+            replacement[i] = Some(text.clone());
+        }
+    }
+    for (i, text) in texts.iter().enumerate() {
+        if replacement[i].is_none()
+            && let Some(pos) = originals.iter().position(|o| key(o) == key(text))
+        {
+            replacement[i] = Some(originals.remove(pos));
+        }
+    }
+
+    let mut out = String::with_capacity(output.len());
+    let mut last = 0;
+    for (&(start, end), replacement) in spans.iter().zip(replacement) {
+        out.extend(&chars[last..start]);
+        match replacement {
+            Some(text) => out.push_str(&text),
+            None => out.extend(&chars[start..end]),
+        }
+        last = end;
+    }
+    out.extend(&chars[last..]);
+    out
+}
+
+/// Character ranges of the single-quoted constants and quoted identifiers in
+/// `text`, skipping comments and dollar-quoted bodies.
+fn quoted_spans(text: &str) -> Vec<(usize, usize)> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut spans = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if let Some((span, end)) = scan(&chars, i) {
+            let dollar = chars[i] == '$';
+            if matches!(span, Span::Literal | Span::Identifier) && !dollar {
+                spans.push((i, end));
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    spans
+}
+
 /// Whether `text` ends inside a `--` comment, so that anything appended on
 /// the same line would be commented out.
 pub(crate) fn ends_in_line_comment(text: &str) -> bool {
@@ -204,6 +281,20 @@ mod tests {
         assert_eq!(collapse_whitespace("f(a, -- why\n  b)"), "f(a, -- why\nb)");
         assert_eq!(collapse_whitespace("'foo'\n   'bar'"), "'foo'\n'bar'");
         assert_eq!(collapse_whitespace("'a  b' \"c  d\""), "'a  b' \"c  d\"");
+    }
+
+    #[test]
+    fn restores_reindented_literals() {
+        let source = "SELECT 'a\n b', 'x  y', 'same' FROM t";
+        let output = "SELECT 'a\n     b',\n       'x  y',\n       'same'\n  FROM t";
+        assert_eq!(
+            restore_literals(source, output),
+            "SELECT 'a\n b',\n       'x  y',\n       'same'\n  FROM t"
+        );
+        // A literal changed beyond whitespace is left alone.
+        assert_eq!(restore_literals("SELECT 'a'", "SELECT 'b'"), "SELECT 'b'");
+        // Dollar-quoted bodies are not touched.
+        assert_eq!(restore_literals("$$a\nb$$", "$$a\n b$$"), "$$a\n b$$");
     }
 
     #[test]

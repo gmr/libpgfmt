@@ -49,17 +49,10 @@ fn formatted_output_parses_in_every_style() {
 }
 
 /// Formatting is a fixed point for every statement whose output is stable.
-///
-/// One statement is excluded: a VALUES row holding a string literal with an
-/// embedded newline gains a space of indentation on each pass. That is
-/// tracked separately — it is a layout-drift bug, not unparseable output.
 #[test]
 fn formatting_is_idempotent_in_every_style() {
     for &style in Style::ALL {
         for sql in &statements() {
-            if sql.contains("array w. UK?") {
-                continue;
-            }
             let once = format(sql, style).unwrap();
             let twice = format(&once, style).unwrap();
             assert_eq!(once, twice, "\nStyle: {style}\nInput:\n{sql}");
