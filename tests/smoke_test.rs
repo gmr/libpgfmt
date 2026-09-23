@@ -1272,3 +1272,14 @@ fn comment_inside_expression_and_after_statement() {
         }
     }
 }
+
+// Input with no statement is not a syntax error: comments are kept, and a bare
+// `;` formats to nothing.
+#[test]
+fn comment_only_input() {
+    for &style in Style::ALL {
+        assert_eq!(format("-- note", style).unwrap(), "-- note");
+        assert_eq!(format("/* note */", style).unwrap(), "/* note */");
+        assert_eq!(format(";", style).unwrap(), "");
+    }
+}

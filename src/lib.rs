@@ -172,12 +172,11 @@ pub fn format_plpgsql(code: &str, style: Style) -> Result<String, FormatError> {
 /// only inputs with an ERROR node are ones that are not PostgreSQL (`?` and
 /// `@extschema@` placeholders), so rejecting them costs nothing valid. See
 /// https://github.com/gmr/libpgfmt/issues/58.
+///
+/// Input with no statement but no error either -- only comments, or a bare
+/// `;` -- is not rejected: it formats to its comments.
 fn has_structural_error(root: &tree_sitter::Node) -> bool {
-    let mut cursor = root.walk();
-    let has_valid_stmt = root
-        .named_children(&mut cursor)
-        .any(|c| c.kind() == "toplevel_stmt");
-    !has_valid_stmt || root.has_error()
+    root.has_error()
 }
 
 fn find_error_message(node: &tree_sitter::Node, source: &str) -> String {
