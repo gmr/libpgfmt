@@ -66,7 +66,8 @@ impl<'a> Formatter<'a> {
 
     /// Like [`collapse_ws`] but keeps a single boundary space when the original
     /// began or ended with whitespace, so collapsed fragments concatenate with
-    /// correct spacing around a spliced-in subquery.
+    /// correct spacing around a spliced-in subquery. A trailing `--` comment
+    /// gets a newline instead, so it does not comment out the subquery.
     fn collapse_preserve_edges(&self, text: &str) -> String {
         if text.is_empty() {
             return String::new();
@@ -81,11 +82,14 @@ impl<'a> Formatter<'a> {
                 String::new()
             };
         }
-        format!(
-            "{}{core}{}",
-            if lead { " " } else { "" },
-            if trail { " " } else { "" }
-        )
+        let tail = if !trail {
+            ""
+        } else if lexical::ends_in_line_comment(&core) {
+            "\n"
+        } else {
+            " "
+        };
+        format!("{}{core}{tail}", if lead { " " } else { "" })
     }
 
     /// Render an expression that may embed sub-`SELECT`s. Parts outside a

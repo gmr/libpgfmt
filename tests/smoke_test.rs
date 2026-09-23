@@ -1072,6 +1072,16 @@ fn line_comment_newline_preserved_in_passthrough() {
     }
 }
 
+// In pg_dump layout, a `--` comment just before a spliced-in subquery keeps
+// its newline, so it does not comment out the subquery.
+#[test]
+fn pgdump_line_comment_before_subquery() {
+    let sql = "SELECT a FROM t WHERE x IN -- note\n (SELECT 1)";
+    let once = format(sql, Style::PgDump).unwrap();
+    format(&once, Style::PgDump)
+        .unwrap_or_else(|e| panic!("\nFormatted to:\n{once}\nWhich fails: {e}"));
+}
+
 // JSON_TABLE rendered as a bare keyword, dropping its arguments and columns.
 #[test]
 fn json_table_preserved() {
