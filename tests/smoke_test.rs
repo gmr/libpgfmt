@@ -1320,3 +1320,23 @@ fn begin_atomic_function_keeps_returns() {
         );
     }
 }
+
+// https://github.com/gmr/libpgfmt/issues/67: a locking clause after LIMIT is
+// kept, and a string constant continued across lines is a fixed point.
+#[test]
+fn locking_after_limit_and_string_continuation() {
+    for &style in Style::ALL {
+        let locked = format(
+            "SELECT ctid FROM t ORDER BY a LIMIT 1 FOR UPDATE SKIP LOCKED",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            locked.contains("FOR UPDATE SKIP LOCKED"),
+            "\nStyle: {style}\nGot:\n{locked}"
+        );
+        let once = format("SELECT 'foo'\n       'bar'", style).unwrap();
+        assert_eq!(once, format(&once, style).unwrap(), "\nStyle: {style}");
+    }
+}

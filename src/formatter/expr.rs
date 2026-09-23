@@ -671,13 +671,11 @@ impl<'a> Formatter<'a> {
 
     fn format_string_const(&self, node: Node<'a>) -> String {
         let mut cursor = node.walk();
-        if let Some(child) = node
+        let text = node
             .named_children(&mut cursor)
             .find(|c| c.kind() == "string_literal")
-        {
-            return self.text(child).to_string();
-        }
-        self.text(node).to_string()
+            .map_or_else(|| self.text(node), |child| self.text(child));
+        continuation_parts(text).map_or_else(|| text.to_string(), |parts| parts.join("\n"))
     }
 
     pub(crate) fn format_func(&self, node: Node<'a>) -> String {
@@ -1709,6 +1707,33 @@ impl<'a> Formatter<'a> {
         parts.retain(|p| !p.is_empty());
         parts.join(" ")
     }
+}
+
+/// The parts of a string constant continued across lines, `'foo'` then `'bar'`
+/// on the next line, which PostgreSQL joins into one value. `None` for a
+/// single constant, or when anything but whitespace separates the parts.
+///
+/// The whitespace between the parts is layout, not data, but it arrives in
+/// the one token. Copied verbatim, layout indented it again on every pass;
+/// joined by a bare newline, layout owns the indentation and formatting is a
+/// fixed point.
+fn continuation_parts(text: &str) -> Option<Vec<String>> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut parts = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_whitespace() {
+            i += 1;
+            continue;
+        }
+        let (span, end) = super::lexical::scan(&chars, i)?;
+        if span != super::lexical::Span::Literal {
+            return None;
+        }
+        parts.push(chars[i..end].iter().collect());
+        i = end;
+    }
+    (parts.len() > 1).then_some(parts)
 }
 
 /// Collapse consecutive dots (`..` → `.`) that arise from joining a qualified
