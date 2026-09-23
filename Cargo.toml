@@ -10,8 +10,8 @@ keywords = ["postgresql", "sql", "formatter", "plpgsql"]
 categories = ["text-processing", "development-tools"]
 
 [dependencies]
-tree-sitter = "0.26"
-tree-sitter-postgres = "=19.0.0-beta.4"
+tree-sitter = "0.27"
+tree-sitter-postgres = "=19.0.0-beta.4.1"
 
 [dev-dependencies]
 pretty_assertions = "1"
