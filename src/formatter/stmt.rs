@@ -1715,20 +1715,58 @@ impl<'a> Formatter<'a> {
             .find_child("qualified_name")
             .map(|n| self.format_qualified_name(n))
             .unwrap_or_default();
+        let if_not_exists = if node.has_child("kw_if") {
+            format!(
+                "{} {} {} ",
+                self.kw("IF"),
+                self.kw("NOT"),
+                self.kw("EXISTS")
+            )
+        } else {
+            String::new()
+        };
 
-        let mut lines = Vec::new();
-        lines.push(format!(
-            "{} {} {} {table_name} (",
+        let mut header = format!(
+            "{} {} {} {if_not_exists}{table_name}",
             self.kw("CREATE"),
             self.kw("FOREIGN"),
             self.kw("TABLE")
-        ));
+        );
 
-        // Column definitions (same as CREATE TABLE).
-        if let Some(elem_list) = node
+        // `PARTITION OF parent ... FOR VALUES ...`, as in CREATE TABLE.
+        // Dropping it made the table a plain foreign table with an empty
+        // column list -- see https://github.com/gmr/libpgfmt/issues/58.
+        let parent = node
+            .named_children_vec()
+            .into_iter()
+            .filter(|c| c.kind() == "qualified_name")
+            .nth(1);
+        if let Some(parent) = parent.filter(|_| node.has_child("kw_partition")) {
+            header.push_str(&format!(
+                " {} {}",
+                self.kw_pair("PARTITION", "OF"),
+                self.format_qualified_name(parent)
+            ));
+        }
+
+        // A partition may omit the element list entirely.
+        let elem_list = node
             .find_child("OptTableElementList")
             .and_then(|n| n.find_child("TableElementList"))
-        {
+            .or_else(|| {
+                node.find_child("OptTypedTableElementList")
+                    .and_then(|n| n.find_child("TypedTableElementList"))
+            });
+
+        let mut lines = Vec::new();
+        if elem_list.is_none() {
+            lines.push(header);
+        } else {
+            lines.push(format!("{header} ("));
+        }
+
+        // Column definitions (same as CREATE TABLE).
+        if let Some(elem_list) = elem_list {
             let indent = self.config.indent;
 
             // Inline comments trail the element they follow (see
@@ -1817,7 +1855,22 @@ impl<'a> Formatter<'a> {
             }
         }
 
-        lines.push(")".to_string());
+        if elem_list.is_some() {
+            lines.push(")".to_string());
+        }
+
+        // FOR VALUES ... / DEFAULT, the bound of a PARTITION OF table.
+        if let Some(bound) = node.find_child("PartitionBoundSpec") {
+            lines.push(self.render_clause_inline(bound));
+        }
+
+        // INHERITS (parent, ...).
+        if let Some(inh) = node.find_child("OptInherit") {
+            let text = self.render_clause_inline(inh);
+            if !text.is_empty() {
+                lines.push(text);
+            }
+        }
 
         // SERVER name.
         if let Some(server_name) = node.find_child("name") {

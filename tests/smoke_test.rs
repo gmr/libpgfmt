@@ -1086,3 +1086,36 @@ fn json_table_preserved() {
         );
     }
 }
+
+// A foreign table keeps PARTITION OF and its bound, INHERITS and IF NOT
+// EXISTS; losing PARTITION OF made it a plain table with an empty column list.
+#[test]
+fn foreign_table_header_preserved() {
+    for (sql, pieces) in [
+        (
+            "CREATE FOREIGN TABLE m7 PARTITION OF m FOR VALUES FROM ('2016-07-01') TO ('2016-08-01') SERVER s7",
+            &[
+                "PARTITION OF M",
+                "FOR VALUES FROM ('2016-07-01') TO ('2016-08-01')",
+            ][..],
+        ),
+        (
+            "CREATE FOREIGN TABLE IF NOT EXISTS c (x int) INHERITS (p) SERVER s",
+            &["IF NOT EXISTS C", "INHERITS (P)"][..],
+        ),
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap().to_uppercase();
+            for piece in pieces {
+                assert!(
+                    result.contains(piece),
+                    "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+                );
+            }
+            assert!(
+                !result.contains("(\n)"),
+                "\nStyle: {style}\nempty column list in:\n{result}"
+            );
+        }
+    }
+}
