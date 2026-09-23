@@ -48,10 +48,30 @@ def first_statement(text):
     which drops the psql output the docs print after the statement.
     """
     quote = None  # "'", '"', or a dollar-quote tag
+    # Inside BEGIN ATOMIC ... END a `;` ends a body statement, not the
+    # CREATE FUNCTION; cutting there left a fragment. The body is closed
+    # by the first END that no CASE opened.
+    atomic = False
+    case_depth = 0
     i = 0
     while i < len(text):
         c = text[i]
         if quote is None:
+            word = None
+            if not (i and (text[i - 1].isalnum() or text[i - 1] == "_")):
+                word = re.match(r"(begin\s+atomic|case|end)\b", text[i:], re.I)
+            if word:
+                kw = word.group(1).lower()
+                if kw.startswith("begin"):
+                    atomic = True
+                elif kw == "case":
+                    case_depth += 1
+                elif case_depth:
+                    case_depth -= 1
+                else:
+                    atomic = False
+                i += len(word.group(0))
+                continue
             if c in "'\"":
                 quote = c
             elif c == "$":
@@ -62,7 +82,9 @@ def first_statement(text):
                     continue
             elif c == ";":
                 rest = text[i + 1 :]
-                if not rest.strip() or rest.lstrip(" \t").startswith("\n"):
+                if not atomic and (
+                    not rest.strip() or rest.lstrip(" \t").startswith("\n")
+                ):
                     return text[: i + 1]
         elif quote in "'\"":
             if c == quote:

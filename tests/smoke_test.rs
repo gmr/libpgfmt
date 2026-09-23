@@ -1302,3 +1302,21 @@ fn reordered_table_elements_keep_their_literals() {
         );
     }
 }
+
+// https://github.com/gmr/libpgfmt/issues/65: a BEGIN ATOMIC function with no
+// option list keeps its RETURNS clause in every style.
+#[test]
+fn begin_atomic_function_keeps_returns() {
+    for &style in Style::ALL {
+        let result = format(
+            "CREATE FUNCTION f(a int) RETURNS int BEGIN ATOMIC SELECT a; END",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            result.contains("RETURNS INT"),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+    }
+}
