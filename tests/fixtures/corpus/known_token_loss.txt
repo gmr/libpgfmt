@@ -35,13 +35,6 @@
 2a84d9f893675a4a:mattmc3  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
 2a84d9f893675a4a:mozilla  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
 2a84d9f893675a4a:river  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
-2dce8ac7d621b9e2:aweber  drops: ( c.name , c.supplier_id , c.price )
-2dce8ac7d621b9e2:dbt  drops: ( c.name , c.supplier_id , c.price )
-2dce8ac7d621b9e2:gitlab  drops: ( c.name , c.supplier_id , c.price )
-2dce8ac7d621b9e2:kickstarter  drops: ( c.name , c.supplier_id , c.price )
-2dce8ac7d621b9e2:mattmc3  drops: ( c.name , c.supplier_id , c.price )
-2dce8ac7d621b9e2:mozilla  drops: ( c.name , c.supplier_id , c.price )
-2dce8ac7d621b9e2:river  drops: ( c.name , c.supplier_id , c.price )
 2f58e365c2514681:aweber  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 2f58e365c2514681:dbt  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 2f58e365c2514681:gitlab  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
@@ -49,13 +42,6 @@
 2f58e365c2514681:mattmc3  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 2f58e365c2514681:mozilla  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
 2f58e365c2514681:river  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
-339f924f4db15318:aweber  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
-339f924f4db15318:dbt  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
-339f924f4db15318:gitlab  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
-339f924f4db15318:kickstarter  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
-339f924f4db15318:mattmc3  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
-339f924f4db15318:mozilla  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
-339f924f4db15318:river  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
 6031e25d1b0e22e6:aweber  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:dbt  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:gitlab  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
@@ -63,13 +49,6 @@
 6031e25d1b0e22e6:mattmc3  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:mozilla  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 6031e25d1b0e22e6:river  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-71f57c93dcef83a7:aweber  drops: ( t. * , 42 )
-71f57c93dcef83a7:dbt  drops: ( t. * , 42 )
-71f57c93dcef83a7:gitlab  drops: ( t. * , 42 )
-71f57c93dcef83a7:kickstarter  drops: ( t. * , 42 )
-71f57c93dcef83a7:mattmc3  drops: ( t. * , 42 )
-71f57c93dcef83a7:mozilla  drops: ( t. * , 42 )
-71f57c93dcef83a7:river  drops: ( t. * , 42 )
 7e1dcb11cd19078f:aweber  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 7e1dcb11cd19078f:dbt  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 7e1dcb11cd19078f:gitlab  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
@@ -127,13 +106,6 @@ c06277f560204556:mattmc3  drops: - -
 c06277f560204556:mozilla  drops: - -
 c06277f560204556:pg_dump  drops: - -
 c06277f560204556:river  drops: - -
-c443608aa60a0d8c:aweber  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
-c443608aa60a0d8c:dbt  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
-c443608aa60a0d8c:gitlab  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
-c443608aa60a0d8c:kickstarter  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
-c443608aa60a0d8c:mattmc3  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
-c443608aa60a0d8c:mozilla  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
-c443608aa60a0d8c:river  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c78ba85af91a4f0b:aweber  drops: using ~ < ~
 c78ba85af91a4f0b:dbt  drops: using ~ < ~
 c78ba85af91a4f0b:gitlab  drops: using ~ < ~
@@ -156,13 +128,6 @@ d9a78e7b01c8e0a7:kickstarter  drops: with ordinality
 d9a78e7b01c8e0a7:mattmc3  drops: with ordinality
 d9a78e7b01c8e0a7:mozilla  drops: with ordinality
 d9a78e7b01c8e0a7:river  drops: with ordinality
-e026fa0c46c28449:aweber  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
-e026fa0c46c28449:dbt  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
-e026fa0c46c28449:gitlab  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
-e026fa0c46c28449:kickstarter  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
-e026fa0c46c28449:mattmc3  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
-e026fa0c46c28449:mozilla  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
-e026fa0c46c28449:river  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
 e59fc5a348a37823:aweber  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
 e59fc5a348a37823:dbt  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
 e59fc5a348a37823:gitlab  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
@@ -192,10 +157,3 @@ f88afb06373c7d6a:kickstarter  drops: cast ( as )
 f88afb06373c7d6a:mattmc3  drops: cast ( as )
 f88afb06373c7d6a:mozilla  drops: cast ( as )
 f88afb06373c7d6a:river  drops: cast ( as )
-ffc560c809694426:aweber  drops: ( 1 , 2.5 , 'this is a test' )
-ffc560c809694426:dbt  drops: ( 1 , 2.5 , 'this is a test' )
-ffc560c809694426:gitlab  drops: ( 1 , 2.5 , 'this is a test' )
-ffc560c809694426:kickstarter  drops: ( 1 , 2.5 , 'this is a test' )
-ffc560c809694426:mattmc3  drops: ( 1 , 2.5 , 'this is a test' )
-ffc560c809694426:mozilla  drops: ( 1 , 2.5 , 'this is a test' )
-ffc560c809694426:river  drops: ( 1 , 2.5 , 'this is a test' )

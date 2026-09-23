@@ -960,3 +960,20 @@ fn values_keeps_surrounding_clauses() {
         }
     }
 }
+
+// `ROW(a, b)` rendered as a bare `ROW`, dropping every field.
+#[test]
+fn explicit_row_fields_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "INSERT INTO on_hand VALUES (ROW('fuzzy dice', 42, 1.99), 1000)",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            result.contains("ROW('FUZZY DICE', 42, 1.99)"),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+    }
+}

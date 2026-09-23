@@ -168,6 +168,7 @@ impl<'a> Formatter<'a> {
             "a_expr_prec" => self.format_a_expr_prec(node),
             "c_expr" => self.format_c_expr(node),
             "implicit_row" => self.format_implicit_row(node),
+            "explicit_row" => self.format_explicit_row(node),
             "columnref" => self.format_columnref(node),
             "AexprConst" => self.format_const(node),
             "func_expr" | "func_application" => self.format_func(node),
@@ -1641,6 +1642,21 @@ impl<'a> Formatter<'a> {
         }
         items.retain(|i| !i.is_empty());
         format!("({})", items.join(", "))
+    }
+
+    /// `ROW(a, b)`. The generic walk rendered the keyword and dropped every
+    /// field -- see https://github.com/gmr/libpgfmt/issues/58.
+    fn format_explicit_row(&self, node: Node<'a>) -> String {
+        let fields: Vec<_> = node
+            .find_child("expr_list")
+            .map(|list| {
+                flatten_list(list, "expr_list")
+                    .iter()
+                    .map(|e| self.format_expr(*e))
+                    .collect()
+            })
+            .unwrap_or_default();
+        format!("{}({})", self.kw("ROW"), fields.join(", "))
     }
 
     /// Format a table reference (for FROM clause), returning the table name with alias.
