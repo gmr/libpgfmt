@@ -192,6 +192,13 @@ impl<'a> Formatter<'a> {
             s.push_str(&self.pgdump_targets(c, depth));
         }
 
+        if let Some(into) = c.into_clause {
+            s.push('\n');
+            s.push_str(&self.river_pad(4, depth));
+            s.push_str("INTO ");
+            s.push_str(&self.select_into_target(into));
+        }
+
         // FROM
         if let Some(from) = c.from {
             s.push_str(&self.pgdump_from(from, depth));

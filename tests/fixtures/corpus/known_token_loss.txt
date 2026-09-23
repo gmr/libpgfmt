@@ -120,22 +120,6 @@
 80f0fb3ee4a2ac6a:mattmc3  drops: as d
 80f0fb3ee4a2ac6a:mozilla  drops: as d
 80f0fb3ee4a2ac6a:river  drops: as d
-8917c72da6ee57ec:aweber  drops: into myrec
-8917c72da6ee57ec:dbt  drops: into myrec
-8917c72da6ee57ec:gitlab  drops: into myrec
-8917c72da6ee57ec:kickstarter  drops: into myrec
-8917c72da6ee57ec:mattmc3  drops: into myrec
-8917c72da6ee57ec:mozilla  drops: into myrec
-8917c72da6ee57ec:pg_dump  drops: into myrec
-8917c72da6ee57ec:river  drops: into myrec
-8a2d5541685d80b8:aweber  drops: into films_recent
-8a2d5541685d80b8:dbt  drops: into films_recent
-8a2d5541685d80b8:gitlab  drops: into films_recent
-8a2d5541685d80b8:kickstarter  drops: into films_recent
-8a2d5541685d80b8:mattmc3  drops: into films_recent
-8a2d5541685d80b8:mozilla  drops: into films_recent
-8a2d5541685d80b8:pg_dump  drops: into films_recent
-8a2d5541685d80b8:river  drops: into films_recent
 8dcafae935966dce:aweber  drops: ?
 8dcafae935966dce:dbt  drops: ?
 8dcafae935966dce:gitlab  drops: ?

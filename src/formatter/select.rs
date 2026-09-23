@@ -18,6 +18,9 @@ pub(crate) struct SelectClauses<'a> {
     pub limit_clause: Option<Node<'a>>,
     pub offset_clause: Option<Node<'a>>,
     pub with_clause: Option<Node<'a>>,
+    /// `SELECT ... INTO target`, which creates a table (or, in PL/pgSQL,
+    /// assigns to variables) instead of returning rows.
+    pub into_clause: Option<Node<'a>>,
     /// WINDOW clause (named window definitions).
     pub window_clause: Option<Node<'a>>,
     /// FOR UPDATE / FOR SHARE (row-level locking).
@@ -77,6 +80,7 @@ impl<'a> Formatter<'a> {
             limit_clause: None,
             offset_clause: None,
             with_clause: None,
+            into_clause: None,
             window_clause: None,
             for_locking: None,
             set_op: None,
@@ -109,6 +113,7 @@ impl<'a> Formatter<'a> {
                         clauses.targets = flatten_list(tl, "target_list");
                     }
                 }
+                "into_clause" => clauses.into_clause = Some(*child),
                 "from_clause" => clauses.from = Some(*child),
                 "where_clause" => clauses.where_clause = Some(*child),
                 "group_clause" => clauses.group_clause = Some(*child),
@@ -183,6 +188,7 @@ impl<'a> Formatter<'a> {
                             limit_clause: None,
                             offset_clause: None,
                             with_clause: None,
+                            into_clause: None,
                             window_clause: None,
                             for_locking: None,
                             set_op: None,
@@ -336,6 +342,14 @@ impl<'a> Formatter<'a> {
             &mut lines,
         );
 
+        if let Some(into) = clauses.into_clause {
+            lines.push(self.river_line(
+                &self.kw("INTO"),
+                &self.select_into_target(into),
+                river_width,
+            ));
+        }
+
         // FROM clause with JOINs.
         if let Some(from) = clauses.from {
             self.format_from_river(from, river_width, &mut lines);
@@ -413,6 +427,9 @@ impl<'a> Formatter<'a> {
         // DISTINCT is part of the content, not the river keyword.
         keywords.push(self.kw("SELECT"));
 
+        if clauses.into_clause.is_some() {
+            keywords.push(self.kw("INTO"));
+        }
         if clauses.from.is_some() {
             keywords.push(self.kw("FROM"));
             // Collect JOIN keywords if they participate in the river.
@@ -832,6 +849,16 @@ impl<'a> Formatter<'a> {
                 text.to_string()
             }
         }
+    }
+
+    /// What a `SELECT ... INTO` writes to: `films_recent`, `TEMP t`, ...
+    pub(crate) fn select_into_target(&self, node: Node<'a>) -> String {
+        let mut cursor = node.walk();
+        node.named_children(&mut cursor)
+            .filter(|c| c.kind() != "kw_into")
+            .map(|c| self.render_clause_inline(c))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     pub(crate) fn format_where_river(&self, node: Node<'a>, width: usize, lines: &mut Vec<String>) {
@@ -1334,6 +1361,14 @@ impl<'a> Formatter<'a> {
                     lines.push(format!("{indent}{formatted}"));
                 }
             }
+        }
+
+        if let Some(into) = clauses.into_clause {
+            lines.push(format!(
+                "{} {}",
+                self.kw("INTO"),
+                self.select_into_target(into)
+            ));
         }
 
         // FROM clause.
