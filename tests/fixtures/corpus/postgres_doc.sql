@@ -220,9 +220,6 @@ DEFAULT FOR TYPE text USING bloom AS
 CREATE TABLE test (a int4);
 ;;
 -- btree-gist.sgml
-CREATE TABLE test (a int4);
-;;
--- btree-gist.sgml
 CREATE TABLE mytable (addr inet);
 ;;
 -- btree-gist.sgml
@@ -409,9 +406,6 @@ SELECT '2 years 15 months 100 weeks 99 hours 123456789 milliseconds'::interval;
 ;;
 -- datatype.sgml
 CREATE TABLE test1 (a boolean, b text);
-;;
--- datatype.sgml
-CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
 ;;
 -- datatype.sgml
 CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
@@ -701,13 +695,6 @@ CREATE TABLE example (
 );
 ;;
 -- ddl.sgml
-CREATE TABLE products (
-    product_no integer PRIMARY KEY,
-    name text,
-    price numeric
-);
-;;
--- ddl.sgml
 CREATE TABLE orders (
     order_id integer PRIMARY KEY,
     product_no integer REFERENCES products (product_no),
@@ -847,9 +834,6 @@ CREATE POLICY admin_local_only ON passwd AS RESTRICTIVE TO admin
     USING (pg_catalog.inet_client_addr() IS NULL);
 ;;
 -- ddl.sgml
-BEGIN;
-;;
--- ddl.sgml
 SELECT * FROM information WHERE group_id = 2 FOR UPDATE;
 ;;
 -- ddl.sgml
@@ -889,11 +873,6 @@ CREATE TABLE cities (
 -- ddl.sgml
 SELECT name, elevation
     FROM cities
-    WHERE elevation > 500;
-;;
--- ddl.sgml
-SELECT name, elevation
-    FROM ONLY cities
     WHERE elevation > 500;
 ;;
 -- ddl.sgml
@@ -956,14 +935,6 @@ CREATE TABLE measurement_y2008m02 PARTITION OF measurement
     TABLESPACE fasttablespace;
 ;;
 -- ddl.sgml
-CREATE TABLE measurement (
-    city_id         int not null,
-    logdate         date not null,
-    peaktemp        int,
-    unitsales       int
-);
-;;
--- ddl.sgml
 CREATE INDEX measurement_y2006m02_logdate ON measurement_y2006m02 (logdate);
 ;;
 -- ddl.sgml
@@ -980,9 +951,6 @@ LANGUAGE plpgsql;
 CREATE TRIGGER insert_measurement_trigger
     BEFORE INSERT ON measurement
     FOR EACH ROW EXECUTE FUNCTION measurement_insert_trigger();
-;;
--- ddl.sgml
-DROP TABLE measurement_y2006m02;
 ;;
 -- ddl.sgml
 ALTER TABLE measurement_y2006m02 NO INHERIT measurement;
@@ -1018,13 +986,6 @@ ALTER TEXT SEARCH CONFIGURATION english
 -- dict-xsyn.sgml
 ALTER TEXT SEARCH CONFIGURATION english
     ALTER MAPPING FOR word, asciiword WITH xsyn, english_stem;
-;;
--- dml.sgml
-CREATE TABLE products (
-    product_no integer,
-    name text,
-    price numeric
-);
 ;;
 -- dml.sgml
 INSERT INTO products VALUES (1, 'Cheese', 9.99);
@@ -1105,9 +1066,6 @@ EXEC SQL CLOSE DATABASE;
 -- event-trigger.sgml
 CREATE FUNCTION noddl() RETURNS event_trigger
     AS 'noddl' LANGUAGE C;
-;;
--- event-trigger.sgml
-BEGIN;
 ;;
 -- event-trigger.sgml
 CREATE OR REPLACE FUNCTION no_rewrite()
@@ -1701,9 +1659,6 @@ SELECT * FROM mytable WHERE x = $1::bigint;
 SELECT 1 AS FOO, 2 AS "BAR";
 ;;
 -- libpq.sgml
-BEGIN;
-;;
--- libpq.sgml
 UPDATE mytable SET x = x + 1 WHERE id = 42;
 ;;
 -- lo.sgml
@@ -1826,9 +1781,6 @@ SELECT * FROM a LEFT JOIN (b JOIN c ON (b.ref = c.id)) ON (a.id = b.id);
 SELECT * FROM a LEFT JOIN b ON (a.bid = b.id) LEFT JOIN c ON (a.cid = c.id);
 ;;
 -- perform.sgml
-SELECT * FROM a, b, c WHERE a.id = b.id AND b.ref = c.id;
-;;
--- perform.sgml
 SELECT *
 FROM x, y,
     (SELECT * FROM a, b, c WHERE something) AS ss
@@ -1888,9 +1840,6 @@ CREATE INDEX words_idx ON words USING GIN (word gin_trgm_ops);
 EXPLAIN SELECT * FROM tenk1;
 ;;
 -- planstats.sgml
-SELECT relpages, reltuples FROM pg_class WHERE relname = 'tenk1';
-;;
--- planstats.sgml
 EXPLAIN SELECT * FROM tenk1 WHERE unique1 < 1000;
 ;;
 -- planstats.sgml
@@ -1945,9 +1894,6 @@ EXPLAIN (ANALYZE, TIMING OFF, BUFFERS OFF) SELECT COUNT(*) FROM t GROUP BY a;
 ;;
 -- planstats.sgml
 EXPLAIN (ANALYZE, TIMING OFF, BUFFERS OFF) SELECT COUNT(*) FROM t GROUP BY a, b;
-;;
--- planstats.sgml
-DROP STATISTICS stts;
 ;;
 -- planstats.sgml
 DROP STATISTICS stts;
@@ -2072,12 +2018,6 @@ CREATE FUNCTION badfunc() RETURNS integer AS $$
     close $fh or elog(ERROR, qq{could not close the file "$tmpfile": $!});
     return 1;
 $$ LANGUAGE plperl;
-;;
--- plperl.sgml
-CREATE TABLE test (
-    i int,
-    v varchar
-);
 ;;
 -- plperl.sgml
 CREATE OR REPLACE FUNCTION perlsnitch() RETURNS event_trigger AS $$
@@ -2324,10 +2264,6 @@ BEGIN
     y := x / 0;
 ;;
 -- plpgsql.sgml
-BEGIN
-    y := x / 0;
-;;
--- plpgsql.sgml
 CREATE TABLE foo (fooid INT, foosubid INT, fooname TEXT);
 ;;
 -- plpgsql.sgml
@@ -2488,12 +2424,6 @@ CREATE TABLE emp (
 -- plpgsql.sgml
 CREATE TABLE emp (
     empname           text PRIMARY KEY,
-    salary            integer
-);
-;;
--- plpgsql.sgml
-CREATE TABLE emp (
-    empname           text NOT NULL,
     salary            integer
 );
 ;;
@@ -3108,15 +3038,6 @@ CREATE FOREIGN TABLE foreign_table (
 -- protocol.sgml
 INSERT INTO mytable VALUES(1);
 ;;
--- protocol.sgml
-BEGIN;
-;;
--- protocol.sgml
-BEGIN;
-;;
--- protocol.sgml
-BEGIN;
-;;
 -- queries.sgml
 SELECT * FROM table1;
 ;;
@@ -3546,13 +3467,7 @@ UPDATE weather
     WHERE date > '1994-11-28';
 ;;
 -- query.sgml
-SELECT * FROM weather;
-;;
--- query.sgml
 DELETE FROM weather WHERE city = 'Hayward';
-;;
--- query.sgml
-SELECT * FROM weather;
 ;;
 -- rangetypes.sgml
 CREATE TABLE reservation (room int, during tsrange);
@@ -3997,9 +3912,6 @@ ALTER VIEW foo RENAME TO bar;
 -- ref/alter_view.sgml
 CREATE TABLE base_table (id int, ts timestamptz);
 ;;
--- ref/begin.sgml
-BEGIN;
-;;
 -- ref/call.sgml
 CALL do_db_maintenance();
 ;;
@@ -4078,9 +3990,6 @@ CREATE COLLATION french (locale = 'fr_FR.utf8');
 ;;
 -- ref/create_collation.sgml
 CREATE COLLATION german_phonebook (provider = icu, locale = 'de-u-co-phonebk');
-;;
--- ref/create_collation.sgml
-CREATE COLLATION german FROM "de_DE";
 ;;
 -- ref/create_conversion.sgml
 CREATE CONVERSION myconv FOR 'UTF8' TO 'LATIN1' FROM myfunc;
@@ -4347,9 +4256,6 @@ CREATE RULE "_RETURN" AS
 CREATE RULE notify_me AS ON UPDATE TO mytable DO ALSO NOTIFY mytable;
 ;;
 -- ref/create_schema.sgml
-CREATE SCHEMA myschema;
-;;
--- ref/create_schema.sgml
 CREATE SCHEMA AUTHORIZATION joe;
 ;;
 -- ref/create_schema.sgml
@@ -4371,13 +4277,7 @@ CREATE SEQUENCE serial START 101;
 SELECT nextval('serial');
 ;;
 -- ref/create_sequence.sgml
-SELECT nextval('serial');
-;;
--- ref/create_sequence.sgml
 INSERT INTO distributors VALUES (nextval('serial'), 'nothing');
-;;
--- ref/create_sequence.sgml
-BEGIN;
 ;;
 -- ref/create_server.sgml
 CREATE SERVER myserver FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host 'foo', dbname 'foodb', port '5432');
@@ -4500,12 +4400,6 @@ CREATE TABLE distributors (
     UNIQUE(name) WITH (fillfactor=70)
 )
 WITH (fillfactor=70);
-;;
--- ref/create_table.sgml
-CREATE TABLE circles (
-    c circle,
-    EXCLUDE USING gist (c WITH &&)
-);
 ;;
 -- ref/create_table.sgml
 CREATE TABLE cinemas (
@@ -5036,12 +4930,6 @@ INSERT INTO distributors (did, dname) VALUES (13, 'Advanced Systems')
 -- ref/listen.sgml
 LISTEN virtual;
 ;;
--- ref/lock.sgml
-BEGIN WORK;
-;;
--- ref/lock.sgml
-BEGIN WORK;
-;;
 -- ref/merge.sgml
 MERGE INTO customer_account ca
 USING recent_transactions t
@@ -5075,16 +4963,7 @@ WHEN MATCHED AND w.stock != s.stock THEN
 WHEN NOT MATCHED BY SOURCE THEN
   DELETE;
 ;;
--- ref/move.sgml
-BEGIN WORK;
-;;
--- ref/notify.sgml
-LISTEN virtual;
-;;
 -- ref/pg_dump.sgml
-CREATE DATABASE foo WITH TEMPLATE template0;
-;;
--- ref/pg_restore.sgml
 CREATE DATABASE foo WITH TEMPLATE template0;
 ;;
 -- ref/pg_rewind.sgml
@@ -5132,12 +5011,6 @@ REINDEX TABLE my_table;
 REINDEX TABLE CONCURRENTLY my_broken_table;
 ;;
 -- ref/release_savepoint.sgml
-BEGIN;
-;;
--- ref/release_savepoint.sgml
-BEGIN;
-;;
--- ref/release_savepoint.sgml
 ROLLBACK;
 ;;
 -- ref/revoke.sgml
@@ -5149,26 +5022,11 @@ REVOKE ALL PRIVILEGES ON kinds FROM manuel;
 -- ref/revoke.sgml
 REVOKE admins FROM joe;
 ;;
--- ref/rollback.sgml
-ROLLBACK;
-;;
 -- ref/rollback_prepared.sgml
 ROLLBACK PREPARED 'foobar';
 ;;
 -- ref/rollback_to.sgml
 ROLLBACK TO SAVEPOINT my_savepoint;
-;;
--- ref/rollback_to.sgml
-BEGIN;
-;;
--- ref/savepoint.sgml
-BEGIN;
-;;
--- ref/savepoint.sgml
-BEGIN;
-;;
--- ref/savepoint.sgml
-BEGIN;
 ;;
 -- ref/security_label.sgml
 SECURITY LABEL FOR selinux ON TABLE mytable IS 'system_u:object_r:sepgsql_table_t:s0';
@@ -5256,12 +5114,6 @@ SET temp_tablespaces TO NULL;
 -- ref/set_role.sgml
 SELECT SESSION_USER, CURRENT_USER;
 ;;
--- ref/set_session_auth.sgml
-SELECT SESSION_USER, CURRENT_USER;
-;;
--- ref/set_transaction.sgml
-BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
-;;
 -- ref/set_transaction.sgml
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 ;;
@@ -5279,9 +5131,6 @@ TRUNCATE bigtable, fattable RESTART IDENTITY;
 ;;
 -- ref/truncate.sgml
 TRUNCATE othertable CASCADE;
-;;
--- ref/unlisten.sgml
-LISTEN virtual;
 ;;
 -- ref/unlisten.sgml
 UNLISTEN virtual;
@@ -5327,9 +5176,6 @@ UPDATE summary s SET (sum_x, sum_y, avg_x, avg_y) =
      WHERE d.group_id = s.group_id);
 ;;
 -- ref/update.sgml
-BEGIN;
-;;
--- ref/update.sgml
 UPDATE films SET kind = 'Dramatic' WHERE CURRENT OF c_films;
 ;;
 -- ref/update.sgml
@@ -5346,20 +5192,6 @@ UPDATE work_item SET status = 'failed'
 ;;
 -- ref/vacuum.sgml
 VACUUM (VERBOSE, ANALYZE) onek;
-;;
--- ref/values.sgml
-VALUES (1, 'one'), (2, 'two'), (3, 'three');
-;;
--- ref/values.sgml
-SELECT 1 AS column1, 'one' AS column2
-UNION ALL
-SELECT 2, 'two'
-UNION ALL
-SELECT 3, 'three';
-;;
--- ref/values.sgml
-INSERT INTO films (code, title, did, date_prod, kind)
-    VALUES ('T_601', 'Yojimbo', 106, '1961-06-16', 'Drama');
 ;;
 -- ref/values.sgml
 INSERT INTO films VALUES
@@ -5596,9 +5428,6 @@ CREATE MATERIALIZED VIEW sales_summary AS
 ;;
 -- rules.sgml
 REFRESH MATERIALIZED VIEW sales_summary;
-;;
--- rules.sgml
-CREATE EXTENSION file_fdw;
 ;;
 -- rules.sgml
 SELECT count(*) FROM words WHERE word = 'caterpiler';
@@ -5847,9 +5676,6 @@ DELETE FROM shoelace WHERE EXISTS
              WHERE sl_name = shoelace.sl_name);
 ;;
 -- rules.sgml
-SELECT * FROM shoelace;
-;;
--- rules.sgml
 CREATE TABLE phone_data (person text, phone text, private boolean);
 ;;
 -- rules.sgml
@@ -5894,12 +5720,6 @@ DELETE FROM computer WHERE manufacturer = 'bim';
 DELETE FROM software WHERE computer.manufacturer = 'bim'
                        AND software.hostname = computer.hostname;
 ;;
--- spgist.sgml
-CREATE OR REPLACE FUNCTION my_options(internal)
-RETURNS void
-AS 'MODULE_PATHNAME'
-LANGUAGE C STRICT;
-;;
 -- spi.sgml
 INSERT INTO a SELECT * FROM a;
 ;;
@@ -5927,9 +5747,6 @@ SELECT 'foobar';
 ;;
 -- syntax.sgml
 SELECT 'foo'      'bar';
-;;
--- syntax.sgml
-SELECT 3 OPERATOR(pg_catalog.+) 4;
 ;;
 -- syntax.sgml
 CREATE FUNCTION dept(text) RETURNS dept

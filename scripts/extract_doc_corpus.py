@@ -79,6 +79,7 @@ def main():
     sgml, out_path = sys.argv[1], sys.argv[2]
     stats = collections.Counter()
     records = []
+    seen = set()
 
     for path in sorted(glob.glob(os.path.join(sgml, "**", "*.sgml"), recursive=True)):
         src = open(path, encoding="utf-8", errors="replace").read()
@@ -112,6 +113,11 @@ def main():
             if stmt is None:
                 stats["skip: no terminator"] += 1
                 continue
+            if stmt in seen:
+                # The same example appears on more than one page.
+                stats["skip: duplicate"] += 1
+                continue
+            seen.add(stmt)
             stats["kept"] += 1
             records.append((os.path.relpath(path, sgml), stmt))
 

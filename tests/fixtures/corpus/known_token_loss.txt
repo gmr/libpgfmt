@@ -1,46 +1,316 @@
 # Statements that still lose content when formatted. Tracked by issue #58.
 #
-# One id per line, from tests/token_loss_test.rs, with a note naming what is
-# dropped. Remove a line when the statement is fixed; the test fails if a
-# listed statement stops losing content, so this list cannot go stale.
+# One `id:style` per line, from tests/token_loss_test.rs, with a note naming
+# what is dropped. Remove a line when the statement is fixed; the test fails
+# if a listed statement stops losing content, so this list cannot go stale.
+#
+# See every entry with its input and output:
+#   TOKEN_LOSS_REPORT=1 cargo test --test token_loss_test -- --nocapture
 
-0f5d2aefe1a0b324  drops: cast ( as )
-109898801ef1e75d  drops: ( year from logdate ( month from logdate ) )
-134827d89a3556fb  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
-13beaab7380bf501  drops: order by a
-17b7c77a26a8bb11  drops: with cascaded check option
-2a84d9f893675a4a  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
-2dce8ac7d621b9e2  drops: ( c.name , c.supplier_id , c.price )
-2f58e365c2514681  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
-339f924f4db15318  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
-3c575c83f95669a9  drops: with ( security_barrier )
-3fd21b875a5c85aa  drops: ( v order by v desc )
-4dc429af639201e3  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
-4f2aa9162cd37215  drops: 2 'two' union all select ,
-4f2aa9162cd37215  drops: 2 'two' union all select ,
-6031e25d1b0e22e6  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
-628c948273a10f52  drops: union all n + 1 where n < 100 select ( n ) from t
-71f57c93dcef83a7  drops: ( t. * , 42 )
-7e1dcb11cd19078f  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
-80f0fb3ee4a2ac6a  drops: as d
-8917c72da6ee57ec  drops: into myrec
-8a2d5541685d80b8  drops: into films_recent
-8dcafae935966dce  drops: ?
-9e0486f07dfb893a  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
-ac4548861c422ac8  drops: and this one - -
-b157aea1efdc87ca  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
-bf59ab5c10593c42  drops: with local check option
-c0370af45f1e65a4  drops: end$$
-c06277f560204556  drops: - -
-c406de5853f604d0  drops: ( k , v order by v )
-c443608aa60a0d8c  drops: id link data ( ( t.f1 t.f2 ) , , , ( t.f1 , t.f2 ) , ) path
-c78ba85af91a4f0b  drops: using ~ < ~
-ccd523c059a78328  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-d4dca78e451567da  drops: ( v order by v desc )
-d9a78e7b01c8e0a7  drops: with ordinality
-e026fa0c46c28449  drops: id link data depth ( g.f1 g.f2 , , , , ( g.f1 , g.f2 ) ( ) , path (...
-e59fc5a348a37823  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
-ebc920835ba820c5  drops: ' $$;
-efab3107705a4df7  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
-f88afb06373c7d6a  drops: cast ( as )
-ffc560c809694426  drops: ( 1 , 2.5 , 'this is a test' )
+093fca44cacdfacb:pg_dump  drops: for update
+0f5d2aefe1a0b324:aweber  drops: cast ( as )
+0f5d2aefe1a0b324:dbt  drops: cast ( as )
+0f5d2aefe1a0b324:gitlab  drops: cast ( as )
+0f5d2aefe1a0b324:kickstarter  drops: cast ( as )
+0f5d2aefe1a0b324:mattmc3  drops: cast ( as )
+0f5d2aefe1a0b324:mozilla  drops: cast ( as )
+0f5d2aefe1a0b324:river  drops: cast ( as )
+109898801ef1e75d:aweber  drops: ( year from logdate ( month from logdate ) )
+109898801ef1e75d:dbt  drops: ( year from logdate ( month from logdate ) )
+109898801ef1e75d:gitlab  drops: ( year from logdate ( month from logdate ) )
+109898801ef1e75d:kickstarter  drops: ( year from logdate ( month from logdate ) )
+109898801ef1e75d:mattmc3  drops: ( year from logdate ( month from logdate ) )
+109898801ef1e75d:mozilla  drops: ( year from logdate ( month from logdate ) )
+109898801ef1e75d:river  drops: ( year from logdate ( month from logdate ) )
+134827d89a3556fb:aweber  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
+134827d89a3556fb:dbt  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
+134827d89a3556fb:gitlab  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
+134827d89a3556fb:kickstarter  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
+134827d89a3556fb:mattmc3  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
+134827d89a3556fb:mozilla  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
+134827d89a3556fb:river  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
+13beaab7380bf501:aweber  drops: order by a
+13beaab7380bf501:dbt  drops: order by a
+13beaab7380bf501:gitlab  drops: order by a
+13beaab7380bf501:kickstarter  drops: order by a
+13beaab7380bf501:mattmc3  drops: order by a
+13beaab7380bf501:mozilla  drops: order by a
+13beaab7380bf501:river  drops: order by a
+177978d4d27e37e9:pg_dump  drops: values '123' , ( '\"abc\"' , ( '{\"a\": \"b\"}' ) , ( '[1,2]' ) , (...
+17b7c77a26a8bb11:aweber  drops: with cascaded check option
+17b7c77a26a8bb11:dbt  drops: with cascaded check option
+17b7c77a26a8bb11:gitlab  drops: with cascaded check option
+17b7c77a26a8bb11:kickstarter  drops: with cascaded check option
+17b7c77a26a8bb11:mattmc3  drops: with cascaded check option
+17b7c77a26a8bb11:mozilla  drops: with cascaded check option
+17b7c77a26a8bb11:river  drops: with cascaded check option
+1a57537e0a64d74a:pg_dump  drops: ( manager_name , ) distance , employee_name
+21b4ece4930c76a0:pg_dump  drops: id link data ( , , , ) path
+2a84d9f893675a4a:aweber  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
+2a84d9f893675a4a:dbt  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
+2a84d9f893675a4a:gitlab  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
+2a84d9f893675a4a:kickstarter  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
+2a84d9f893675a4a:mattmc3  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
+2a84d9f893675a4a:mozilla  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
+2a84d9f893675a4a:river  drops: ( '{\"favorites\":\n    [{\"movies\":\n      [{\"name\": \"One\", \...
+2dce8ac7d621b9e2:aweber  drops: ( c.name , c.supplier_id , c.price )
+2dce8ac7d621b9e2:dbt  drops: ( c.name , c.supplier_id , c.price )
+2dce8ac7d621b9e2:gitlab  drops: ( c.name , c.supplier_id , c.price )
+2dce8ac7d621b9e2:kickstarter  drops: ( c.name , c.supplier_id , c.price )
+2dce8ac7d621b9e2:mattmc3  drops: ( c.name , c.supplier_id , c.price )
+2dce8ac7d621b9e2:mozilla  drops: ( c.name , c.supplier_id , c.price )
+2dce8ac7d621b9e2:river  drops: ( c.name , c.supplier_id , c.price )
+2f58e365c2514681:aweber  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+2f58e365c2514681:dbt  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+2f58e365c2514681:gitlab  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+2f58e365c2514681:kickstarter  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+2f58e365c2514681:mattmc3  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+2f58e365c2514681:mozilla  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+2f58e365c2514681:river  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+339f924f4db15318:aweber  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
+339f924f4db15318:dbt  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
+339f924f4db15318:gitlab  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
+339f924f4db15318:kickstarter  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
+339f924f4db15318:mattmc3  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
+339f924f4db15318:mozilla  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
+339f924f4db15318:river  drops: ( 1 , 2.5 , 'this is a test' ) ( 1 , 3 , 'not the same' )
+3c575c83f95669a9:aweber  drops: with ( security_barrier )
+3c575c83f95669a9:dbt  drops: with ( security_barrier )
+3c575c83f95669a9:gitlab  drops: with ( security_barrier )
+3c575c83f95669a9:kickstarter  drops: with ( security_barrier )
+3c575c83f95669a9:mattmc3  drops: with ( security_barrier )
+3c575c83f95669a9:mozilla  drops: with ( security_barrier )
+3c575c83f95669a9:river  drops: with ( security_barrier )
+3fd21b875a5c85aa:aweber  drops: order by v desc
+3fd21b875a5c85aa:dbt  drops: order by v desc
+3fd21b875a5c85aa:gitlab  drops: order by v desc
+3fd21b875a5c85aa:kickstarter  drops: order by v desc
+3fd21b875a5c85aa:mattmc3  drops: order by v desc
+3fd21b875a5c85aa:mozilla  drops: order by v desc
+3fd21b875a5c85aa:pg_dump  drops: values ( 1 , ( 3 ) , ( 4 ) , ( 3 ) , ( 2 ) ) ( v )
+3fd21b875a5c85aa:river  drops: order by v desc
+45d22ed1c9f831ed:pg_dump  drops: id link data ( , , , ) depth
+489c13db31bc75fd:pg_dump  drops: ( ) n
+4dc429af639201e3:aweber  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
+4dc429af639201e3:dbt  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
+4dc429af639201e3:gitlab  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
+4dc429af639201e3:kickstarter  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
+4dc429af639201e3:mattmc3  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
+4dc429af639201e3:mozilla  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
+4dc429af639201e3:river  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
+4f2aa9162cd37215:aweber  drops: 2 'two' union all select ,
+4f2aa9162cd37215:dbt  drops: 2 'two' union all select ,
+4f2aa9162cd37215:gitlab  drops: 2 'two' union all select ,
+4f2aa9162cd37215:kickstarter  drops: 2 'two' union all select ,
+4f2aa9162cd37215:mattmc3  drops: 2 'two' union all select ,
+4f2aa9162cd37215:mozilla  drops: 2 'two' union all select ,
+4f2aa9162cd37215:pg_dump  drops: 2 'two' union all select ,
+4f2aa9162cd37215:river  drops: 2 'two' union all select ,
+59957c21cc3c709a:pg_dump  drops: window w as ( partition by depname order by salary desc )
+6031e25d1b0e22e6:aweber  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
+6031e25d1b0e22e6:dbt  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
+6031e25d1b0e22e6:gitlab  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
+6031e25d1b0e22e6:kickstarter  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
+6031e25d1b0e22e6:mattmc3  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
+6031e25d1b0e22e6:mozilla  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
+6031e25d1b0e22e6:pg_dump  drops: values '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]' ( )
+6031e25d1b0e22e6:river  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
+628c948273a10f52:aweber  drops: union all + 1 where n < 100 select n from t
+628c948273a10f52:dbt  drops: union all + 1 where n < 100 select n from t
+628c948273a10f52:gitlab  drops: union all + 1 where n < 100 select n from t
+628c948273a10f52:kickstarter  drops: union all + 1 where n < 100 select n from t
+628c948273a10f52:mattmc3  drops: union all + 1 where n < 100 select n from t
+628c948273a10f52:mozilla  drops: union all + 1 where n < 100 select n from t
+628c948273a10f52:pg_dump  drops: values ( 1 ) ( n )
+628c948273a10f52:river  drops: union all + 1 where n < 100 select n from t
+66fa8600e72a6365:pg_dump  drops: values ( '192.168.0.1' : : inet , ( '192.168.0.10' ) , ( '192.168.1...
+6d1a47ebc1e01d47:kickstarter  drops: search depth first id set by ordercol
+6d1a47ebc1e01d47:pg_dump  drops: id link data ( , , ) search depth first id set by ordercol
+6de4351632222e15:pg_dump  drops: id link data depth , , , ( , path , is_cycle )
+71f57c93dcef83a7:aweber  drops: ( t. * , 42 )
+71f57c93dcef83a7:dbt  drops: ( t. * , 42 )
+71f57c93dcef83a7:gitlab  drops: ( t. * , 42 )
+71f57c93dcef83a7:kickstarter  drops: ( t. * , 42 )
+71f57c93dcef83a7:mattmc3  drops: ( t. * , 42 )
+71f57c93dcef83a7:mozilla  drops: ( t. * , 42 )
+71f57c93dcef83a7:river  drops: ( t. * , 42 )
+7e1dcb11cd19078f:aweber  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+7e1dcb11cd19078f:dbt  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+7e1dcb11cd19078f:gitlab  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+7e1dcb11cd19078f:kickstarter  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+7e1dcb11cd19078f:mattmc3  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+7e1dcb11cd19078f:mozilla  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+7e1dcb11cd19078f:river  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+80f0fb3ee4a2ac6a:aweber  drops: as d
+80f0fb3ee4a2ac6a:dbt  drops: as d
+80f0fb3ee4a2ac6a:gitlab  drops: as d
+80f0fb3ee4a2ac6a:kickstarter  drops: as d
+80f0fb3ee4a2ac6a:mattmc3  drops: as d
+80f0fb3ee4a2ac6a:mozilla  drops: as d
+80f0fb3ee4a2ac6a:river  drops: as d
+8917c72da6ee57ec:aweber  drops: into myrec
+8917c72da6ee57ec:dbt  drops: into myrec
+8917c72da6ee57ec:gitlab  drops: into myrec
+8917c72da6ee57ec:kickstarter  drops: into myrec
+8917c72da6ee57ec:mattmc3  drops: into myrec
+8917c72da6ee57ec:mozilla  drops: into myrec
+8917c72da6ee57ec:pg_dump  drops: into myrec
+8917c72da6ee57ec:river  drops: into myrec
+8a2d5541685d80b8:aweber  drops: into films_recent
+8a2d5541685d80b8:dbt  drops: into films_recent
+8a2d5541685d80b8:gitlab  drops: into films_recent
+8a2d5541685d80b8:kickstarter  drops: into films_recent
+8a2d5541685d80b8:mattmc3  drops: into films_recent
+8a2d5541685d80b8:mozilla  drops: into films_recent
+8a2d5541685d80b8:pg_dump  drops: into films_recent
+8a2d5541685d80b8:river  drops: into films_recent
+8dcafae935966dce:aweber  drops: ?
+8dcafae935966dce:dbt  drops: ?
+8dcafae935966dce:gitlab  drops: ?
+8dcafae935966dce:kickstarter  drops: ?
+8dcafae935966dce:mattmc3  drops: ?
+8dcafae935966dce:mozilla  drops: ?
+8dcafae935966dce:river  drops: ?
+93b22e40aae57fff:pg_dump  drops: id link data ( , , )
+99966339a62287c5:pg_dump  drops: values ( 1 , 'one' ) , ( 2 , 'two' ) , ( 3 , 'three' )
+9ac77a685f357585:pg_dump  drops: for update
+9e0486f07dfb893a:aweber  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
+9e0486f07dfb893a:dbt  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
+9e0486f07dfb893a:gitlab  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
+9e0486f07dfb893a:kickstarter  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
+9e0486f07dfb893a:mattmc3  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
+9e0486f07dfb893a:mozilla  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
+9e0486f07dfb893a:river  drops: from json_to_recordset ( '[{\"a\":40,\"b\":\"foo\"},{\"a\":\"100\",...
+9facaf9be78f7210:pg_dump  drops: id link data depth ( , , , )
+ac4548861c422ac8:aweber  drops: and this one - -
+ac4548861c422ac8:dbt  drops: and this one - -
+ac4548861c422ac8:gitlab  drops: and this one - -
+ac4548861c422ac8:kickstarter  drops: and this one - -
+ac4548861c422ac8:mattmc3  drops: and this one - -
+ac4548861c422ac8:mozilla  drops: and this one - -
+ac4548861c422ac8:river  drops: and this one - -
+ad1a34e61b606d82:kickstarter  drops: cycle id set is_cycle using path
+ad1a34e61b606d82:pg_dump  drops: id link data depth ( , , , ) cycle id set is_cycle using path
+affd272dfd869431:pg_dump  drops: not materialized
+b157aea1efdc87ca:aweber  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+b157aea1efdc87ca:dbt  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+b157aea1efdc87ca:gitlab  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+b157aea1efdc87ca:kickstarter  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+b157aea1efdc87ca:mattmc3  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+b157aea1efdc87ca:mozilla  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+b157aea1efdc87ca:river  drops: ( js , '$.favorites[*] ? (@.films[*].director == $filter)' passing ...
+bf59ab5c10593c42:aweber  drops: with local check option
+bf59ab5c10593c42:dbt  drops: with local check option
+bf59ab5c10593c42:gitlab  drops: with local check option
+bf59ab5c10593c42:kickstarter  drops: with local check option
+bf59ab5c10593c42:mattmc3  drops: with local check option
+bf59ab5c10593c42:mozilla  drops: with local check option
+bf59ab5c10593c42:river  drops: with local check option
+c0370af45f1e65a4:aweber  drops: end$$
+c0370af45f1e65a4:dbt  drops: end$$
+c0370af45f1e65a4:gitlab  drops: end$$
+c0370af45f1e65a4:kickstarter  drops: end$$
+c0370af45f1e65a4:mattmc3  drops: end$$
+c0370af45f1e65a4:mozilla  drops: end$$
+c0370af45f1e65a4:river  drops: end$$
+c06277f560204556:aweber  drops: - -
+c06277f560204556:dbt  drops: - -
+c06277f560204556:gitlab  drops: - -
+c06277f560204556:kickstarter  drops: - -
+c06277f560204556:mattmc3  drops: - -
+c06277f560204556:mozilla  drops: - -
+c06277f560204556:pg_dump  drops: - -
+c06277f560204556:river  drops: - -
+c406de5853f604d0:aweber  drops: order by v
+c406de5853f604d0:dbt  drops: order by v
+c406de5853f604d0:gitlab  drops: order by v
+c406de5853f604d0:kickstarter  drops: order by v
+c406de5853f604d0:mattmc3  drops: order by v
+c406de5853f604d0:mozilla  drops: order by v
+c406de5853f604d0:pg_dump  drops: values ( 'key0' , '1' , ( 'key1' , '3' ) , ( 'key1' , '2' ) ) ( k ,...
+c406de5853f604d0:river  drops: order by v
+c443608aa60a0d8c:aweber  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
+c443608aa60a0d8c:dbt  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
+c443608aa60a0d8c:gitlab  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
+c443608aa60a0d8c:kickstarter  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
+c443608aa60a0d8c:mattmc3  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
+c443608aa60a0d8c:mozilla  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
+c443608aa60a0d8c:pg_dump  drops: id link data , ( , , ) path
+c443608aa60a0d8c:river  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
+c486c470512f97cf:pg_dump  drops: for update
+c78ba85af91a4f0b:aweber  drops: using ~ < ~
+c78ba85af91a4f0b:dbt  drops: using ~ < ~
+c78ba85af91a4f0b:gitlab  drops: using ~ < ~
+c78ba85af91a4f0b:kickstarter  drops: using ~ < ~
+c78ba85af91a4f0b:mattmc3  drops: using ~ < ~
+c78ba85af91a4f0b:mozilla  drops: using ~ < ~
+c78ba85af91a4f0b:river  drops: using ~ < ~
+ccd523c059a78328:aweber  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
+ccd523c059a78328:dbt  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
+ccd523c059a78328:gitlab  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
+ccd523c059a78328:kickstarter  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
+ccd523c059a78328:mattmc3  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
+ccd523c059a78328:mozilla  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
+ccd523c059a78328:pg_dump  drops: '\";\n    };\n$$ LANGUAGE plperl;
+ccd523c059a78328:river  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
+d47e9a63e960eb87:pg_dump  drops: values 'MGM' 'Horror' , ( 'UA' , 'Sci-Fi' ) ( , )
+d4dca78e451567da:aweber  drops: order by v desc
+d4dca78e451567da:dbt  drops: order by v desc
+d4dca78e451567da:gitlab  drops: order by v desc
+d4dca78e451567da:kickstarter  drops: order by v desc
+d4dca78e451567da:mattmc3  drops: order by v desc
+d4dca78e451567da:mozilla  drops: order by v desc
+d4dca78e451567da:pg_dump  drops: values ( 1 , ( 3 ) , ( 4 ) , ( 3 ) , ( 2 ) ) ( v )
+d4dca78e451567da:river  drops: order by v desc
+d9a78e7b01c8e0a7:aweber  drops: with ordinality
+d9a78e7b01c8e0a7:dbt  drops: with ordinality
+d9a78e7b01c8e0a7:gitlab  drops: with ordinality
+d9a78e7b01c8e0a7:kickstarter  drops: with ordinality
+d9a78e7b01c8e0a7:mattmc3  drops: with ordinality
+d9a78e7b01c8e0a7:mozilla  drops: with ordinality
+d9a78e7b01c8e0a7:river  drops: with ordinality
+e026fa0c46c28449:aweber  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
+e026fa0c46c28449:dbt  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
+e026fa0c46c28449:gitlab  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
+e026fa0c46c28449:kickstarter  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
+e026fa0c46c28449:mattmc3  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
+e026fa0c46c28449:mozilla  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
+e026fa0c46c28449:pg_dump  drops: id link data depth , , , path ( , , is_cycle )
+e026fa0c46c28449:river  drops: g.f1 g.f2 ( g.f1 g.f2 ( ) , ( g.f1 , g.f2 ) , )
+e59fc5a348a37823:aweber  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
+e59fc5a348a37823:dbt  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
+e59fc5a348a37823:gitlab  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
+e59fc5a348a37823:kickstarter  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
+e59fc5a348a37823:mattmc3  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
+e59fc5a348a37823:mozilla  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
+e59fc5a348a37823:river  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...
+ebc920835ba820c5:aweber  drops: ' $$;
+ebc920835ba820c5:dbt  drops: ' $$;
+ebc920835ba820c5:gitlab  drops: ' $$;
+ebc920835ba820c5:kickstarter  drops: ' $$;
+ebc920835ba820c5:mattmc3  drops: ' $$;
+ebc920835ba820c5:mozilla  drops: ' $$;
+ebc920835ba820c5:pg_dump  drops: ' $$;
+ebc920835ba820c5:river  drops: ' $$;
+efab3107705a4df7:aweber  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+efab3107705a4df7:dbt  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+efab3107705a4df7:gitlab  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+efab3107705a4df7:kickstarter  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+efab3107705a4df7:mattmc3  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+efab3107705a4df7:mozilla  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+efab3107705a4df7:river  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
+f88afb06373c7d6a:aweber  drops: cast ( as )
+f88afb06373c7d6a:dbt  drops: cast ( as )
+f88afb06373c7d6a:gitlab  drops: cast ( as )
+f88afb06373c7d6a:kickstarter  drops: cast ( as )
+f88afb06373c7d6a:mattmc3  drops: cast ( as )
+f88afb06373c7d6a:mozilla  drops: cast ( as )
+f88afb06373c7d6a:river  drops: cast ( as )
+fb829c70d9748792:pg_dump  drops: values 1 1.0e20 : : float8 , ( 2 , 1.0 : : float8 ) ( , )
+ffc560c809694426:aweber  drops: ( 1 , 2.5 , 'this is a test' )
+ffc560c809694426:dbt  drops: ( 1 , 2.5 , 'this is a test' )
+ffc560c809694426:gitlab  drops: ( 1 , 2.5 , 'this is a test' )
+ffc560c809694426:kickstarter  drops: ( 1 , 2.5 , 'this is a test' )
+ffc560c809694426:mattmc3  drops: ( 1 , 2.5 , 'this is a test' )
+ffc560c809694426:mozilla  drops: ( 1 , 2.5 , 'this is a test' )
+ffc560c809694426:river  drops: ( 1 , 2.5 , 'this is a test' )

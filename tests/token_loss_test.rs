@@ -64,7 +64,7 @@ fn id(sql: &str) -> String {
     format!("{hash:016x}")
 }
 
-/// The statements known to still lose content, as `id -> note`.
+/// The statements known to still lose content, as `id:style -> note`.
 fn known_token_loss() -> HashMap<String, String> {
     let path = fixture("known_token_loss.txt");
     let body = std::fs::read_to_string(&path)
@@ -187,24 +187,27 @@ fn formatting_does_not_drop_content() {
     let mut seen = Vec::new();
     let mut regressions = Vec::new();
 
-    for (id, sql) in corpus() {
-        let Ok(formatted) = format(&sql, Style::River) else {
-            // Statements the grammar cannot parse are a separate concern; the
-            // corpus holds a handful of doc examples that are not valid alone.
-            continue;
-        };
-        let missing = dropped(&sql, &formatted);
-        if missing.is_empty() {
-            continue;
-        }
-        seen.push(id.clone());
-        if std::env::var_os("TOKEN_LOSS_REPORT").is_some() {
-            println!("{id}\nInput:\n{sql}\nFormatted to:\n{formatted}\nDropped: {missing:?}\n");
-        }
-        if !known.contains_key(&id) {
-            regressions.push(format!(
-                "\n{id}\nInput:\n{sql}\nFormatted to:\n{formatted}\nDropped: {missing:?}"
-            ));
+    for (statement, sql) in corpus() {
+        for &style in Style::ALL {
+            let Ok(formatted) = format(&sql, style) else {
+                // Statements the grammar cannot parse are a separate concern;
+                // the corpus holds doc examples that are not valid alone.
+                continue;
+            };
+            let missing = dropped(&sql, &formatted);
+            if missing.is_empty() {
+                continue;
+            }
+            let id = format!("{statement}:{style}");
+            seen.push(id.clone());
+            if std::env::var_os("TOKEN_LOSS_REPORT").is_some() {
+                println!("{id}\nInput:\n{sql}\nFormatted to:\n{formatted}\nDropped: {missing:?}\n");
+            }
+            if !known.contains_key(&id) {
+                regressions.push(format!(
+                    "\n{id}\nInput:\n{sql}\nFormatted to:\n{formatted}\nDropped: {missing:?}"
+                ));
+            }
         }
     }
 
