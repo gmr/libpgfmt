@@ -1381,6 +1381,10 @@ impl<'a> Formatter<'a> {
             head.push(self.kw(normalize_whitespace(self.text(temp)).as_str()));
         }
 
+        if node.has_child("kw_recursive") {
+            head.push(self.kw("RECURSIVE"));
+        }
+
         head.push(self.kw("VIEW"));
         let mut prefix = head.join(" ");
 
@@ -1390,12 +1394,38 @@ impl<'a> Formatter<'a> {
             .or_else(|| node.find_child("view_name"))
             .map(|n| self.format_qualified_name(n))
             .unwrap_or_default();
-        prefix = format!("{prefix} {name} {}", self.kw("AS"));
+        prefix = format!("{prefix} {name}");
+
+        // Column names, required for a RECURSIVE view.
+        if let Some(columns) = node.find_child("columnList") {
+            prefix = format!("{prefix} ({})", self.render_clause_inline(columns));
+        }
+
+        // WITH (security_barrier, check_option = ...). security_barrier is
+        // what keeps a view's WHERE from being bypassed by a leaky function,
+        // so dropping it is a security change -- see
+        // https://github.com/gmr/libpgfmt/issues/58.
+        if let Some(options) = node.find_child("opt_reloptions") {
+            let options = self.render_clause_inline(options);
+            if !options.is_empty() {
+                prefix = format!("{prefix} {options}");
+            }
+        }
+        prefix = format!("{prefix} {}", self.kw("AS"));
+
+        // WITH [CASCADED | LOCAL] CHECK OPTION, which makes writes through
+        // the view obey its WHERE clause.
+        let check_option = node
+            .find_child("opt_check_option")
+            .map(|n| self.render_clause_inline(n))
+            .filter(|t| !t.is_empty())
+            .map(|t| format!("\n{t}"))
+            .unwrap_or_default();
 
         // The SELECT body.
         if let Some(select) = node.find_child("SelectStmt") {
             let body = self.format_select_stmt(select);
-            format!("{prefix}\n{}", body.trim_end_matches(';'))
+            format!("{prefix}\n{}{check_option}", body.trim_end_matches(';'))
         } else {
             prefix
         }
@@ -1404,26 +1434,22 @@ impl<'a> Formatter<'a> {
     // ── CREATE TABLE AS / CREATE MATERIALIZED VIEW ──────────────────────
 
     fn format_create_table_as_stmt(&self, node: Node<'a>) -> String {
-        let kind = node.kind();
-        let mut prefix_parts = vec![self.kw("CREATE")];
-
-        if kind == "CreateMatViewStmt" {
-            prefix_parts.push(self.kw("MATERIALIZED"));
-            prefix_parts.push(self.kw("VIEW"));
-        } else {
-            // Could be CREATE TABLE AS or CREATE MATERIALIZED VIEW AS.
-            if node.has_child("kw_materialized") {
-                prefix_parts.push(self.kw("MATERIALIZED"));
-                prefix_parts.push(self.kw("VIEW"));
-            } else {
-                prefix_parts.push(self.kw("TABLE"));
+        // Everything before AS, in order: CREATE [UNLOGGED] MATERIALIZED VIEW
+        // [IF NOT EXISTS] name [(cols)] [USING am] [WITH (...)] [TABLESPACE
+        // ts]. Picking these out one by one dropped every one not picked --
+        // see https://github.com/gmr/libpgfmt/issues/58.
+        let mut prefix_parts = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "kw_as" {
+                break;
+            }
+            let piece = self.render_clause_inline(child);
+            if !piece.is_empty() {
+                prefix_parts.push(piece);
             }
         }
-
-        let name = self.find_name_in_create(node);
-        prefix_parts.push(name);
         prefix_parts.push(self.kw("AS"));
-
         let prefix = prefix_parts.join(" ");
 
         // The SELECT body.
@@ -1438,16 +1464,13 @@ impl<'a> Formatter<'a> {
 
         let body = body.trim_end_matches(';');
 
-        // Check for WITH NO DATA.
-        let mut suffix = String::new();
-        if node.has_child("kw_no") || self.text(node).contains("WITH NO DATA") {
-            suffix = format!(
-                "\n{} {} {}",
-                self.kw("WITH"),
-                self.kw("NO"),
-                self.kw("DATA")
-            );
-        }
+        // WITH [NO] DATA.
+        let suffix = node
+            .find_child("opt_with_data")
+            .map(|n| self.render_clause_inline(n))
+            .filter(|t| !t.is_empty())
+            .map(|t| format!("\n{t}"))
+            .unwrap_or_default();
 
         format!("{prefix}\n{body}{suffix}")
     }

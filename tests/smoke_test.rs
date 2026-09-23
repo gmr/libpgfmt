@@ -869,3 +869,36 @@ fn aggregate_order_by_and_variadic_preserved() {
         }
     }
 }
+
+// View and materialized view headers carry options that change behaviour:
+// security_barrier, CHECK OPTION, and the storage and population clauses.
+#[test]
+fn view_options_preserved() {
+    for (sql, pieces) in [
+        (
+            "CREATE OR REPLACE RECURSIVE VIEW v (a) WITH (security_barrier) AS SELECT 1 WITH LOCAL CHECK OPTION",
+            &[
+                "RECURSIVE VIEW v (a)",
+                "WITH (security_barrier)",
+                "WITH LOCAL CHECK OPTION",
+            ][..],
+        ),
+        (
+            "CREATE MATERIALIZED VIEW IF NOT EXISTS mv (x) USING heap WITH (fillfactor = 70) TABLESPACE fast AS SELECT 1 with no data",
+            &[
+                "IF NOT EXISTS mv (x) USING heap WITH (fillfactor = 70) TABLESPACE fast",
+                "WITH NO DATA",
+            ][..],
+        ),
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap().to_uppercase();
+            for piece in pieces {
+                assert!(
+                    result.contains(&piece.to_uppercase()),
+                    "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+                );
+            }
+        }
+    }
+}
