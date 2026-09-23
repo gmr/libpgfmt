@@ -536,9 +536,15 @@ impl<'a> Formatter<'a> {
             .or_else(|| node.find_child("createfunc_opt_list"));
 
         // RETURNS spec (scalar, SETOF or TABLE(...)) — everything between the
-        // signature and the option list, rendered on its own line.
-        if let Some(ol) = opts {
-            let ret = self.collapse_ws(&self.source[sig_end..ol.start_byte()]);
+        // signature and the option list, rendered on its own line. A
+        // `BEGIN ATOMIC` function may have no option list, so the span can
+        // also end at the routine body; requiring an option list dropped
+        // RETURNS -- see https://github.com/gmr/libpgfmt/issues/65.
+        let ret_end = opts
+            .or_else(|| node.find_child("opt_routine_body"))
+            .map(|n| n.start_byte());
+        if let Some(ret_end) = ret_end {
+            let ret = self.collapse_ws(&self.source[sig_end..ret_end]);
             if !ret.is_empty() {
                 s.push_str("\n ");
                 s.push_str(&ret);

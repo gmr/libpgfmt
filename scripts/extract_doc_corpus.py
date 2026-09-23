@@ -62,7 +62,14 @@ def first_statement(text):
                     continue
             elif c == ";":
                 rest = text[i + 1 :]
-                if not rest.strip() or rest.lstrip(" \t").startswith("\n"):
+                # Inside BEGIN ATOMIC ... END a `;` ends a body statement,
+                # not the CREATE FUNCTION; cutting there left a fragment.
+                inside_atomic = re.search(
+                    r"\bbegin\s+atomic\b", text[:i], re.I
+                ) and not re.search(r"\bend\s*$", text[:i], re.I)
+                if not inside_atomic and (
+                    not rest.strip() or rest.lstrip(" \t").startswith("\n")
+                ):
                     return text[: i + 1]
         elif quote in "'\"":
             if c == quote:

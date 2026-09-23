@@ -1006,6 +1006,7 @@ CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow',
 CREATE FUNCTION get_color_note (rainbow) RETURNS text
 BEGIN ATOMIC
   SELECT note FROM my_colors WHERE color = $1;
+END;
 ;;
 -- dict-int.sgml
 ALTER TEXT SEARCH CONFIGURATION english
@@ -1404,6 +1405,7 @@ BEGIN ATOMIC
   SELECT to_tsvector('simple',
                      string_agg(array_to_string(daitch_mokotoff(n), ' '), ' '))
   FROM regexp_split_to_table(v_name, '\s+') AS n;
+END;
 ;;
 -- gist.sgml
 CREATE INDEX ON my_table USING GIST (my_inet_column inet_ops);
@@ -4245,6 +4247,8 @@ CREATE PROCEDURE insert_data(a integer, b integer)
 LANGUAGE SQL
 BEGIN ATOMIC
   INSERT INTO tbl VALUES (a);
+  INSERT INTO tbl VALUES (b);
+END;
 ;;
 -- ref/create_procedure.sgml
 CALL insert_data(1, 2);
