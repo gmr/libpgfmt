@@ -1592,6 +1592,26 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// The LANGUAGE of the function an option item belongs to, lower-cased
+    /// and unquoted.
+    fn function_language(&self, item: Node<'a>) -> Option<String> {
+        let mut stmt = item;
+        while !matches!(stmt.kind(), "CreateFunctionStmt") {
+            stmt = stmt.parent()?;
+        }
+        let mut stack = vec![stmt];
+        while let Some(node) = stack.pop() {
+            if node.kind() == "createfunc_opt_item"
+                && node.has_child("kw_language")
+                && let Some(lang) = node.find_child("NonReservedWord_or_Sconst")
+            {
+                return Some(self.text(lang).trim_matches('\'').to_lowercase());
+            }
+            stack.extend(node.named_children_vec());
+        }
+        None
+    }
+
     fn format_createfunc_opt_item(&self, node: Node<'a>, parts: &mut Vec<String>) {
         if node.has_child("kw_language") {
             if let Some(lang) = node.find_child("NonReservedWord_or_Sconst") {
@@ -1609,7 +1629,19 @@ impl<'a> Formatter<'a> {
             // the original structure.
             let text = self.text(child).trim();
             if let Some((tag, body)) = parse_dollar_quoted(text) {
-                if body.contains('\n') {
+                // The body is a string constant. Re-laying it out is safe
+                // only in a language where whitespace outside strings means
+                // nothing, and only when no string in it spans a line;
+                // anything else -- PL/Perl, PL/Python, a multi-line literal
+                // in PL/pgSQL -- is emitted exactly as written. See
+                // https://github.com/gmr/libpgfmt/issues/57.
+                let relayout = self
+                    .function_language(node)
+                    .is_some_and(|l| l == "sql" || l == "plpgsql")
+                    && lexical::layout_is_safe(body);
+                if !relayout {
+                    parts.push(format!("{} {text}", self.kw("AS")));
+                } else if body.contains('\n') {
                     let body = reindent_body(body, " ");
                     parts.push(format!("{} {tag}\n{body}\n{tag}", self.kw("AS")));
                 } else {

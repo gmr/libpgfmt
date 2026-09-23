@@ -1188,3 +1188,36 @@ fn multiline_literal_is_not_reindented() {
         assert_eq!(once, format(&once, style).unwrap(), "\nStyle: {style}");
     }
 }
+
+// https://github.com/gmr/libpgfmt/issues/57: a function body is a string
+// constant. It is re-laid out only in SQL or PL/pgSQL, and only when no string
+// inside it spans a line; otherwise it is emitted exactly as written.
+#[test]
+fn function_bodies_are_only_relaid_out_when_safe() {
+    let verbatim = [
+        (
+            "CREATE FUNCTION pymax(a int, b int) RETURNS int AS $$\nif a > b:\n    return a\nreturn b\n$$ LANGUAGE plpython3u",
+            "$$\nif a > b:\n    return a\nreturn b\n$$",
+        ),
+        (
+            "CREATE FUNCTION f() RETURNS text AS $$\nBEGIN\n    RETURN 'one\n  two';\nEND\n$$ LANGUAGE plpgsql",
+            "$$\nBEGIN\n    RETURN 'one\n  two';\nEND\n$$",
+        ),
+    ];
+    for &style in Style::ALL {
+        for (sql, body) in verbatim {
+            let result = format(sql, style).unwrap();
+            assert!(result.contains(body), "\nStyle: {style}\nGot:\n{result}");
+        }
+    }
+    // An ordinary PL/pgSQL body keeps the usual layout.
+    let result = format(
+        "CREATE FUNCTION f() RETURNS int AS $$\n        BEGIN\n            RETURN 1;\n        END\n$$ LANGUAGE plpgsql",
+        Style::River,
+    )
+    .unwrap();
+    assert!(
+        result.contains("$$\n BEGIN\n     RETURN 1;\n END\n$$"),
+        "Got:\n{result}"
+    );
+}

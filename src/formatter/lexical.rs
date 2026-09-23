@@ -218,6 +218,29 @@ fn quoted_spans(text: &str) -> Vec<(usize, usize)> {
     spans
 }
 
+/// Whether moving the lines of `body` around -- re-indenting them, or joining
+/// a one-line body onto new lines -- leaves every string constant and quoted
+/// identifier in it unchanged.
+///
+/// It does unless one of them holds a newline, or one is unterminated and so
+/// runs to the end. Scanning with a newline appended catches both: an
+/// unterminated span swallows it.
+pub(crate) fn layout_is_safe(body: &str) -> bool {
+    let probe: Vec<char> = format!("{body}\n").chars().collect();
+    let mut i = 0;
+    while i < probe.len() {
+        if let Some((span, end)) = scan(&probe, i) {
+            if matches!(span, Span::Literal | Span::Identifier) && probe[i..end].contains(&'\n') {
+                return false;
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    true
+}
+
 /// Whether `text` ends inside a `--` comment, so that anything appended on
 /// the same line would be commented out.
 pub(crate) fn ends_in_line_comment(text: &str) -> bool {
@@ -295,6 +318,14 @@ mod tests {
         assert_eq!(restore_literals("SELECT 'a'", "SELECT 'b'"), "SELECT 'b'");
         // Dollar-quoted bodies are not touched.
         assert_eq!(restore_literals("$$a\nb$$", "$$a\n b$$"), "$$a\n b$$");
+    }
+
+    #[test]
+    fn layout_safety() {
+        assert!(layout_is_safe("\n  SELECT 'a' || $1;\n"));
+        assert!(!layout_is_safe("x := 'line one\n  line two';"));
+        assert!(!layout_is_safe("EXECUTE $q$\n SELECT 1 $q$;"));
+        assert!(!layout_is_safe(" SELECT '(1,0')' + 1 "));
     }
 
     #[test]
