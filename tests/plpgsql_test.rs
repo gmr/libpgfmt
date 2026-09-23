@@ -125,3 +125,49 @@ fn sql_body_fallback() {
     assert!(result.contains("SELECT"), "\nGot:\n{result}");
     assert!(result.trim_end().ends_with(';'), "\nGot:\n{result}");
 }
+
+// https://github.com/gmr/libpgfmt/issues/69 and #70: block labels, end labels,
+// compiler directives, a bound cursor's query and comments are kept, and a
+// nested block ends with `;`. The output parses and is a fixed point.
+#[test]
+fn plpgsql_keeps_labels_directives_cursors_comments_and_nested_terminators() {
+    let body = "#variable_conflict use_variable\n<<outerblock>>\nDECLARE\n    c CURSOR IS SELECT * FROM t ORDER BY a;\nBEGIN\n    BEGIN\n        -- standalone\n        NULL; -- inner\n    END;\n    COMMIT;\nEND outerblock";
+    for &style in Style::ALL {
+        let once = format_plpgsql(body, style).unwrap();
+        for piece in [
+            "#variable_conflict use_variable",
+            "<<outerblock>>",
+            "CURSOR IS SELECT * FROM t ORDER BY a;",
+            "-- inner",
+            "-- standalone",
+            " outerblock;",
+        ] {
+            assert!(
+                once.contains(piece) || once.to_lowercase().contains(&piece.to_lowercase()),
+                "\nStyle: {style}\nmissing {piece:?} in:\n{once}"
+            );
+        }
+        let twice = format_plpgsql(&once, style).unwrap_or_else(|e| {
+            panic!("\nStyle: {style}\nFormatted to:\n{once}\nWhich fails: {e}")
+        });
+        assert_eq!(once, twice, "\nStyle: {style}");
+    }
+}
+
+// A bound cursor's query that ends in a `--` comment keeps its `;` on the next
+// line, out of the comment, so the output still parses.
+#[test]
+fn plpgsql_cursor_query_ending_in_line_comment_keeps_terminator() {
+    let body = "DECLARE\n    c CURSOR FOR SELECT 1 -- note\n;\nBEGIN\n    OPEN c;\nEND";
+    for &style in Style::ALL {
+        let once = format_plpgsql(body, style).unwrap();
+        assert!(
+            once.contains("-- note\n;"),
+            "\nStyle: {style}\nGot:\n{once}"
+        );
+        let twice = format_plpgsql(&once, style).unwrap_or_else(|e| {
+            panic!("\nStyle: {style}\nFormatted to:\n{once}\nWhich fails: {e}")
+        });
+        assert_eq!(once, twice, "\nStyle: {style}");
+    }
+}

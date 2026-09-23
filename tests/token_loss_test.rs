@@ -25,7 +25,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use libpgfmt::{format, style::Style};
+use libpgfmt::{format, format_plpgsql, style::Style};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -383,6 +383,94 @@ fn formatted_corpus_is_a_fixed_point() {
     assert!(
         failures.is_empty(),
         "{} formatted statement(s) change when formatted again:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// The PL/pgSQL body of every corpus statement written in PL/pgSQL, as
+/// `(id, body)`: the dollar-quoted or `AS '...'` body of a CREATE FUNCTION or
+/// PROCEDURE that names `plpgsql`, or of a DO block. `format_plpgsql` formats
+/// these; `format` only re-lays them out, so the statement tests above never
+/// reach it.
+fn plpgsql_bodies() -> Vec<(String, String)> {
+    corpus()
+        .into_iter()
+        .filter_map(|(_, sql)| {
+            let lower = sql.to_lowercase();
+            if !lower.contains("plpgsql") && !lower.trim_start().starts_with("do") {
+                return None;
+            }
+            let chars: Vec<char> = sql.chars().collect();
+            let dollar = (0..chars.len()).find_map(|i| {
+                (chars[i] == '$' && (i == 0 || !chars[i - 1].is_alphanumeric()))
+                    .then(|| dollar_quote(&chars, i))
+                    .flatten()
+            });
+            let body = match dollar {
+                Some((body_start, close)) => chars[body_start..close].iter().collect(),
+                None => single_quoted_body(&chars)?,
+            };
+            let body = body.trim().to_string();
+            body.to_lowercase()
+                .contains("begin")
+                .then(|| (id(&body), body))
+        })
+        .collect()
+}
+
+/// The body of `AS '...'`, with each doubled quote written once.
+fn single_quoted_body(chars: &[char]) -> Option<String> {
+    let open = (0..chars.len()).find(|&i| {
+        let before: String = chars[..i].iter().collect();
+        chars[i] == '\'' && before.trim_end().to_lowercase().ends_with(" as")
+    })?;
+    let mut body = String::new();
+    let mut i = open + 1;
+    while i < chars.len() {
+        if chars[i] == '\'' {
+            if chars.get(i + 1) != Some(&'\'') {
+                return Some(body);
+            }
+            i += 1;
+        }
+        body.push(chars[i]);
+        i += 1;
+    }
+    None
+}
+
+/// `format_plpgsql` keeps every token of a body, its output parses, and a
+/// second pass changes nothing. See https://github.com/gmr/libpgfmt/issues/69.
+#[test]
+fn plpgsql_formatting_keeps_content_reparses_and_is_a_fixed_point() {
+    let mut failures = Vec::new();
+    for (body_id, body) in plpgsql_bodies() {
+        for &style in Style::ALL {
+            let Ok(once) = format_plpgsql(&body, style) else {
+                continue;
+            };
+            let missing = dropped(&body, &once);
+            if !missing.is_empty() {
+                failures.push(format!(
+                    "\n{body_id}:{style} drops {missing:?}\nInput:\n{body}\nFormatted to:\n{once}"
+                ));
+                continue;
+            }
+            match format_plpgsql(&once, style) {
+                Err(e) => failures.push(format!(
+                    "\n{body_id}:{style} no longer parses: {e}\nFormatted to:\n{once}"
+                )),
+                Ok(twice) if twice != once => failures.push(format!(
+                    "\n{body_id}:{style} changes on a second pass\nFirst:\n{once}\nSecond:\n{twice}"
+                )),
+                Ok(_) => {}
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} PL/pgSQL formatting failure(s):\n{}",
         failures.len(),
         failures.join("\n")
     );
