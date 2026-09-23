@@ -7,13 +7,6 @@
 # See every entry with its input and output:
 #   TOKEN_LOSS_REPORT=1 cargo test --test token_loss_test -- --nocapture
 
-0f5d2aefe1a0b324:aweber  drops: cast ( as )
-0f5d2aefe1a0b324:dbt  drops: cast ( as )
-0f5d2aefe1a0b324:gitlab  drops: cast ( as )
-0f5d2aefe1a0b324:kickstarter  drops: cast ( as )
-0f5d2aefe1a0b324:mattmc3  drops: cast ( as )
-0f5d2aefe1a0b324:mozilla  drops: cast ( as )
-0f5d2aefe1a0b324:river  drops: cast ( as )
 134827d89a3556fb:aweber  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
 134827d89a3556fb:dbt  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
 134827d89a3556fb:gitlab  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
@@ -143,10 +136,3 @@ efab3107705a4df7:kickstarter  drops: ( js , '$.favorites[*]' columns ( id for or
 efab3107705a4df7:mattmc3  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 efab3107705a4df7:mozilla  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 efab3107705a4df7:river  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
-f88afb06373c7d6a:aweber  drops: cast ( as )
-f88afb06373c7d6a:dbt  drops: cast ( as )
-f88afb06373c7d6a:gitlab  drops: cast ( as )
-f88afb06373c7d6a:kickstarter  drops: cast ( as )
-f88afb06373c7d6a:mattmc3  drops: cast ( as )
-f88afb06373c7d6a:mozilla  drops: cast ( as )
-f88afb06373c7d6a:river  drops: cast ( as )

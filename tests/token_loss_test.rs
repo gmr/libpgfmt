@@ -119,7 +119,8 @@ fn tokens(sql: &str) -> Vec<String> {
 /// formatter performs do not read as content loss.
 ///
 /// Every entry here is a rewrite libpgfmt makes on purpose: it spells a type
-/// alias out, or writes an operator the way the SQL standard does. Adding to
+/// alias out, writes an operator the way the SQL standard does, or writes a
+/// CAST as `::`. Adding to
 /// this list hides a difference, so an entry belongs here only when the two
 /// spellings mean exactly the same thing to PostgreSQL.
 fn canonicalize(tokens: &[String]) -> Vec<String> {
@@ -145,6 +146,7 @@ fn canonicalize(tokens: &[String]) -> Vec<String> {
         ("char", "bpchar"),
     ];
 
+    let tokens = &rewrite_casts(tokens);
     let mut out: Vec<String> = Vec::with_capacity(tokens.len());
     let mut i = 0;
     'outer: while i < tokens.len() {
@@ -163,6 +165,44 @@ fn canonicalize(tokens: &[String]) -> Vec<String> {
             .find(|(from, _)| from == token)
             .map_or(token.as_str(), |(_, to)| to);
         out.push(replacement.to_string());
+        i += 1;
+    }
+    out
+}
+
+/// `CAST ( x AS t )` as `x :: t`, the spelling libpgfmt writes it in.
+fn rewrite_casts(tokens: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(tokens.len());
+    let mut i = 0;
+    while i < tokens.len() {
+        if tokens[i] == "cast" && tokens.get(i + 1).is_some_and(|t| t == "(") {
+            let mut depth = 0;
+            let mut as_at = None;
+            let mut close = None;
+            for (j, token) in tokens.iter().enumerate().skip(i + 1) {
+                match token.as_str() {
+                    "(" => depth += 1,
+                    ")" => {
+                        depth -= 1;
+                        if depth == 0 {
+                            close = Some(j);
+                            break;
+                        }
+                    }
+                    "as" if depth == 1 && as_at.is_none() => as_at = Some(j),
+                    _ => {}
+                }
+            }
+            if let (Some(as_at), Some(close)) = (as_at, close) {
+                out.extend(rewrite_casts(&tokens[i + 2..as_at]));
+                out.push(":".to_string());
+                out.push(":".to_string());
+                out.extend(rewrite_casts(&tokens[as_at + 1..close]));
+                i = close + 1;
+                continue;
+            }
+        }
+        out.push(tokens[i].clone());
         i += 1;
     }
     out
