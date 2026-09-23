@@ -1067,3 +1067,22 @@ fn line_comment_newline_preserved_in_passthrough() {
         });
     }
 }
+
+// JSON_TABLE rendered as a bare keyword, dropping its arguments and columns.
+#[test]
+fn json_table_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "SELECT jt.* FROM f, JSON_TABLE(js, '$.a[*]' COLUMNS (id FOR ORDINALITY, k text PATH '$.k')) AS jt",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            result.contains(
+                "JSON_TABLE(JS, '$.A[*]' COLUMNS (ID FOR ORDINALITY, K TEXT PATH '$.K'))"
+            ),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+    }
+}

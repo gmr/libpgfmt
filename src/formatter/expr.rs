@@ -1686,6 +1686,12 @@ impl<'a> Formatter<'a> {
                 // format_expr kept only the call, or for ROWS FROM only `ROWS`
                 // -- see https://github.com/gmr/libpgfmt/issues/58.
                 "func_table" => parts.push(self.render_clause_inline(child)),
+                // JSON_TABLE(...): format_expr kept only the keyword.
+                "json_table" => {
+                    let kw = self.kw("JSON_TABLE");
+                    let text = self.render_clause_inline(child);
+                    parts.push(text.replacen(&format!("{kw} ("), &format!("{kw}("), 1));
+                }
                 _ => parts.push(self.format_expr(child)),
             }
         }
