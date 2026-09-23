@@ -1405,7 +1405,11 @@ impl<'a> Formatter<'a> {
         prefix = format!("{prefix} {name}");
 
         // Column names, required for a RECURSIVE view.
-        if let Some(columns) = node.find_child("columnList") {
+        // A plain view nests the list under opt_column_list.
+        if let Some(columns) = node.find_child("columnList").or_else(|| {
+            node.find_child("opt_column_list")
+                .and_then(|n| n.find_child("columnList"))
+        }) {
             prefix = format!("{prefix} ({})", self.render_clause_inline(columns));
         }
 

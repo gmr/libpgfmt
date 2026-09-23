@@ -876,6 +876,10 @@ fn aggregate_order_by_and_variadic_preserved() {
 fn view_options_preserved() {
     for (sql, pieces) in [
         (
+            "CREATE VIEW v (a, b) AS SELECT 1, 2",
+            &["VIEW V (A, B)"][..],
+        ),
+        (
             "CREATE OR REPLACE RECURSIVE VIEW v (a) WITH (security_barrier) AS SELECT 1 WITH LOCAL CHECK OPTION",
             &[
                 "RECURSIVE VIEW v (a)",
