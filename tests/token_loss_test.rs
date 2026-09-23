@@ -112,7 +112,46 @@ fn tokens(sql: &str) -> Vec<String> {
     if !word.is_empty() {
         out.push(word);
     }
-    out
+    out.into_iter().flat_map(split_dollar_delimiters).collect()
+}
+
+/// Split `$tag$` delimiters out of a token. A closing delimiter is found by
+/// searching the body, not by token rules, so `END$$` in the input and `END`
+/// then `$$` in the output are the same text and must tokenize the same way.
+///
+/// This applies to quote-started tokens too: a `'` inside a dollar-quoted body
+/// is not a quote, and the tokenizer, which does not track dollar quoting, can
+/// run a "literal" across the body's closing delimiter.
+fn split_dollar_delimiters(word: String) -> Vec<String> {
+    let bytes: Vec<char> = word.chars().collect();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == '$' {
+            let mut j = i + 1;
+            while j < bytes.len() && (bytes[j].is_alphanumeric() || bytes[j] == '_') {
+                j += 1;
+            }
+            if j < bytes.len()
+                && bytes[j] == '$'
+                && !bytes[i + 1..j].first().is_some_and(char::is_ascii_digit)
+            {
+                let before: String = bytes[..i].iter().collect();
+                let delimiter: String = bytes[i..=j].iter().collect();
+                let after: String = bytes[j + 1..].iter().collect();
+                let mut out = Vec::new();
+                if !before.is_empty() {
+                    out.push(before);
+                }
+                out.push(delimiter);
+                if !after.is_empty() {
+                    out.extend(split_dollar_delimiters(after));
+                }
+                return out;
+            }
+        }
+        i += 1;
+    }
+    vec![word]
 }
 
 /// Rewrites that both sides get, so the deliberate normalizations the
