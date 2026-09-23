@@ -1,6 +1,6 @@
 /// Statement-level formatting: dispatches to specific statement formatters.
 use crate::error::FormatError;
-use crate::node_helpers::{NodeExt, flatten_list};
+use crate::node_helpers::{NodeExt, flatten_list, flatten_list_keeping_comments};
 use tree_sitter::Node;
 
 use super::Formatter;
@@ -1040,14 +1040,13 @@ impl<'a> Formatter<'a> {
     /// Comments interspersed within the list parse as siblings of the
     /// elements; a comment after the last element parses as a direct child of
     /// the statement node, between the list and the closing paren. Comments
-    /// after the closing paren belong to later clauses (SERVER, OPTIONS, WITH,
-    /// INHERITS, a partition spec, ...) and are left for those to handle.
+    /// after the closing paren are put back by `Formatter::restore_comments`.
     fn collect_table_elements(
         &self,
         node: Node<'a>,
         elem_list: Node<'a>,
     ) -> (Vec<String>, Vec<(Node<'a>, Vec<String>)>) {
-        let raw = flatten_list(elem_list, elem_list.kind());
+        let raw = flatten_list_keeping_comments(elem_list, elem_list.kind());
         let (group_leading, mut grouped) = self.group_table_elements(&raw);
         let list_start = elem_list.start_byte();
         let close_paren = {
@@ -1074,7 +1073,7 @@ impl<'a> Formatter<'a> {
                     None => before_list.push(text),
                 }
             }
-            // Comments after the closing paren belong to a later clause.
+            // Comments after the closing paren are put back later.
         }
         let mut leading = before_list;
         leading.extend(group_leading);

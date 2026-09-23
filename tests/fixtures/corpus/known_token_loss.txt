@@ -8,18 +8,3 @@
 # See every entry with its input and output:
 #   TOKEN_LOSS_REPORT=1 cargo test --test token_loss_test -- --nocapture
 
-ac4548861c422ac8:aweber  [#62] drops: ["and", "this", "one", "-", "-"]
-ac4548861c422ac8:dbt  [#62] drops: ["and", "this", "one", "-", "-"]
-ac4548861c422ac8:gitlab  [#62] drops: ["and", "this", "one", "-", "-"]
-ac4548861c422ac8:kickstarter  [#62] drops: ["and", "this", "one", "-", "-"]
-ac4548861c422ac8:mattmc3  [#62] drops: ["and", "this", "one", "-", "-"]
-ac4548861c422ac8:mozilla  [#62] drops: ["and", "this", "one", "-", "-"]
-ac4548861c422ac8:river  [#62] drops: ["and", "this", "one", "-", "-"]
-c06277f560204556:aweber  [#62] drops: ["-", "-"]
-c06277f560204556:dbt  [#62] drops: ["-", "-"]
-c06277f560204556:gitlab  [#62] drops: ["-", "-"]
-c06277f560204556:kickstarter  [#62] drops: ["-", "-"]
-c06277f560204556:mattmc3  [#62] drops: ["-", "-"]
-c06277f560204556:mozilla  [#62] drops: ["-", "-"]
-c06277f560204556:pg_dump  [#62] drops: ["-", "-"]
-c06277f560204556:river  [#62] drops: ["-", "-"]

@@ -1221,3 +1221,34 @@ fn function_bodies_are_only_relaid_out_when_safe() {
         "Got:\n{result}"
     );
 }
+
+// https://github.com/gmr/libpgfmt/issues/62: comments inside a statement are
+// kept, the output still parses, and formatting is a fixed point. A comment in
+// a comma list used to become an empty element and break the SQL.
+#[test]
+fn comments_inside_statements_preserved() {
+    let cases = [
+        "SELECT a, -- first\n       b /* inline */, c\n  FROM t -- source\n WHERE x = 1 -- one\n   AND y = 2",
+        "WITH w AS ( -- cte\n  SELECT 1 AS n -- inner\n)\nSELECT n FROM w",
+        "CREATE FUNCTION f(\n    a IN int,\n    c OUT int) -- and this\nAS $$ BEGIN c := a; END $$ LANGUAGE plpgsql",
+        "CREATE TABLE t (id int -- the id\n)",
+    ];
+    for &style in Style::ALL {
+        for sql in cases {
+            let once = format(sql, style).unwrap();
+            for comment in sql
+                .split('\n')
+                .filter_map(|l| l.find("--").map(|i| l[i..].trim_end()))
+            {
+                assert!(
+                    once.contains(comment),
+                    "\nStyle: {style}\nmissing {comment:?} in:\n{once}"
+                );
+            }
+            let twice = format(&once, style).unwrap_or_else(|e| {
+                panic!("\nStyle: {style}\nFormatted to:\n{once}\nWhich fails: {e}")
+            });
+            assert_eq!(once, twice, "\nStyle: {style}\nInput:\n{sql}");
+        }
+    }
+}

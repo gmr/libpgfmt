@@ -105,13 +105,8 @@ pub fn format(sql: &str, style: Style) -> Result<String, FormatError> {
         .parse(&input, None)
         .ok_or_else(|| FormatError::Parser("Failed to parse SQL".into()))?;
     let root = tree.root_node();
-    // The tree-sitter-postgres grammar doesn't handle some valid SQL
-    // constructs (e.g., decimal literals like 800.00). When errors are
-    // limited to leaf nodes, attempt to format anyway so the rest of the
-    // statement is still properly styled. Only bail out when the tree
-    // structure is fundamentally broken (ERROR at the top level wrapping
-    // major statement parts).
-    if root.has_error() && has_structural_error(&root) {
+    // Any ERROR or MISSING node rejects the input; see has_structural_error.
+    if has_structural_error(&root) {
         return Err(FormatError::Syntax(find_error_message(&root, &input)));
     }
     let fmt = Formatter::new(&input, style);

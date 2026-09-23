@@ -241,6 +241,132 @@ pub(crate) fn layout_is_safe(body: &str) -> bool {
     true
 }
 
+/// Put back the comments of `source` that `output` lost, or `None` when one of
+/// them cannot be placed.
+///
+/// `comments` holds each comment's character offset in `source` and its text.
+/// The formatters render the node kinds they know and never see comments, so
+/// every one inside a statement was dropped. Each is re-attached at the end of
+/// the output line that holds the token it followed in the source: the same
+/// token, found by counting how many times it occurs before the comment.
+/// Words compare case-insensitively, so keyword casing does not matter. When
+/// the formatter rewrote that token (`int` to `INTEGER`, say) there is no
+/// place to put the comment, and the caller falls back to the statement as
+/// written. A comment the output already holds -- a passthrough path kept
+/// it -- is left where it is. See https://github.com/gmr/libpgfmt/issues/62.
+pub(crate) fn restore_comments(
+    source: &str,
+    comments: &[(usize, String)],
+    output: &str,
+) -> Option<String> {
+    let source_tokens = match_tokens(&source.chars().collect::<Vec<_>>());
+    let mut out = output.to_string();
+    let mut present: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (_, text) in comments {
+        present
+            .entry(text.as_str())
+            .or_insert_with(|| output.matches(text.as_str()).count());
+    }
+    let mut leading = Vec::new();
+    for (offset, text) in comments {
+        if let Some(n) = present.get_mut(text.as_str())
+            && *n > 0
+        {
+            *n -= 1;
+            continue;
+        }
+        let before: Vec<&str> = source_tokens
+            .iter()
+            .filter(|t| t.2 <= *offset)
+            .map(|t| t.0.as_str())
+            .collect();
+        let Some(&anchor) = before.last() else {
+            leading.push(text.clone());
+            continue;
+        };
+        let nth = before.iter().filter(|t| **t == anchor).count();
+        let chars: Vec<char> = out.chars().collect();
+        let tokens = match_tokens(&chars);
+        let &(_, _, end) = tokens.iter().filter(|t| t.0 == anchor).nth(nth - 1)?;
+        let (at, line_has_comment) = line_end(&chars, end);
+        let insert = if line_has_comment {
+            // Never inside another line comment: give this one its own line.
+            let start = chars[..at]
+                .iter()
+                .rposition(|c| *c == '\n')
+                .map_or(0, |p| p + 1);
+            let indent: String = chars[start..at].iter().take_while(|c| **c == ' ').collect();
+            format!("\n{indent}{text}")
+        } else {
+            format!(" {text}")
+        };
+        out = chars[..at].iter().collect::<String>()
+            + &insert
+            + &chars[at..].iter().collect::<String>();
+    }
+    if !leading.is_empty() {
+        out = format!("{}\n{out}", leading.join("\n"));
+    }
+    Some(out)
+}
+
+/// Words, constants and punctuation in `chars`, each with its character range,
+/// skipping whitespace and comments. Words are lower-cased and constants have
+/// their whitespace removed, so layout and keyword casing do not matter.
+fn match_tokens(chars: &[char]) -> Vec<(String, usize, usize)> {
+    let mut tokens = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if let Some((span, end)) = scan(chars, i) {
+            if matches!(span, Span::Literal | Span::Identifier) {
+                let text = chars[i..end]
+                    .iter()
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
+                tokens.push((text, i, end));
+            }
+            i = end;
+        } else if chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '$' {
+            let start = i;
+            while i < chars.len()
+                && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '$')
+            {
+                i += 1;
+            }
+            tokens.push((
+                chars[start..i].iter().collect::<String>().to_lowercase(),
+                start,
+                i,
+            ));
+        } else {
+            if !chars[i].is_whitespace() {
+                tokens.push((chars[i].to_string(), i, i + 1));
+            }
+            i += 1;
+        }
+    }
+    tokens
+}
+
+/// The index of the first newline at or after `from` that is outside every
+/// constant and comment, or the end of `chars`, and whether a line comment
+/// sits between the two.
+fn line_end(chars: &[char], from: usize) -> (usize, bool) {
+    let mut has_comment = false;
+    let mut i = from;
+    while i < chars.len() {
+        if let Some((span, end)) = scan(chars, i) {
+            has_comment |= span == Span::LineComment;
+            i = end;
+        } else if chars[i] == '\n' {
+            return (i, has_comment);
+        } else {
+            i += 1;
+        }
+    }
+    (chars.len(), has_comment)
+}
+
 /// Whether `text` ends inside a `--` comment, so that anything appended on
 /// the same line would be commented out.
 pub(crate) fn ends_in_line_comment(text: &str) -> bool {
@@ -326,6 +452,33 @@ mod tests {
         assert!(!layout_is_safe("x := 'line one\n  line two';"));
         assert!(!layout_is_safe("EXECUTE $q$\n SELECT 1 $q$;"));
         assert!(!layout_is_safe(" SELECT '(1,0')' + 1 "));
+    }
+
+    #[test]
+    fn comments_are_reattached_to_their_line() {
+        let source = "SELECT city FROM weather WHERE city LIKE 'S%' -- only S\nGROUP BY city";
+        let offset = source.find("--").unwrap();
+        let comments = [(source[..offset].chars().count(), "-- only S".to_string())];
+        let output = "  SELECT city\n    FROM weather\n   WHERE city LIKE 'S%'\nGROUP BY city;";
+        assert_eq!(
+            restore_comments(source, &comments, output).unwrap(),
+            "  SELECT city\n    FROM weather\n   WHERE city LIKE 'S%' -- only S\nGROUP BY city;"
+        );
+        // Already present: left alone.
+        let kept = "SELECT 1 -- x";
+        assert_eq!(
+            restore_comments(kept, &[(9, "-- x".to_string())], kept).unwrap(),
+            kept
+        );
+        // The anchor was rewritten: no place for the comment.
+        assert!(
+            restore_comments(
+                "SELECT a::int -- x",
+                &[(14, "-- x".to_string())],
+                "SELECT a::INTEGER;"
+            )
+            .is_none()
+        );
     }
 
     #[test]

@@ -205,8 +205,8 @@ impl<'a> Formatter<'a> {
                 let stmt = child.find_child("stmt").unwrap_or(child);
                 let source = self.text(stmt);
                 if self.config.pg_dump {
-                    let mut text =
-                        lexical::restore_literals(source, &self.format_pgdump_stmt(stmt)?);
+                    let text = lexical::restore_literals(source, &self.format_pgdump_stmt(stmt)?);
+                    let mut text = self.restore_comments(child, text);
                     // The deparser writes a lone statement without `;`, and
                     // the pg_dump fixtures keep that, but a second statement
                     // needs the first terminated or the two run together --
@@ -219,13 +219,14 @@ impl<'a> Formatter<'a> {
                     }
                     results.push(text);
                 } else {
-                    results.push(lexical::restore_literals(source, &self.format_stmt(stmt)?));
+                    let text = lexical::restore_literals(source, &self.format_stmt(stmt)?);
+                    results.push(self.restore_comments(child, text));
                 }
             } else if child.kind() == "comment" {
                 // Standalone comments between/around top-level statements are
                 // direct children of `source_file`; preserve them verbatim in
-                // source order so they are not silently discarded. (Comments
-                // embedded within a statement's clauses are not yet preserved.)
+                // source order so they are not silently discarded. Comments
+                // inside a statement are handled by restore_comments.
                 results.push(self.text(child).trim_end().to_string());
             }
         }
@@ -233,6 +234,42 @@ impl<'a> Formatter<'a> {
             return Ok(String::new());
         }
         Ok(results.join("\n\n"))
+    }
+
+    /// Put back the comments inside `stmt` that formatting dropped.
+    ///
+    /// When one cannot be placed, the statement is emitted as written, with
+    /// only its whitespace collapsed: losing the formatting is better than
+    /// losing the comment. See [`lexical::restore_comments`].
+    fn restore_comments(&self, stmt: Node<'a>, formatted: String) -> String {
+        let source = self.text(stmt);
+        let mut comments = Vec::new();
+        let mut stack = vec![stmt];
+        while let Some(node) = stack.pop() {
+            if node.kind() == "comment" {
+                let offset = source[..node.start_byte() - stmt.start_byte()]
+                    .chars()
+                    .count();
+                comments.push((offset, self.text(node).trim_end().to_string()));
+            }
+            let mut cursor = node.walk();
+            stack.extend(node.children(&mut cursor));
+        }
+        if comments.is_empty() {
+            return formatted;
+        }
+        comments.sort_by_key(|(offset, _)| *offset);
+        if let Some(restored) = lexical::restore_comments(source, &comments, &formatted) {
+            return restored;
+        }
+        let mut verbatim = lexical::collapse_whitespace(source);
+        if formatted.trim_end().ends_with(';') && !verbatim.ends_with(';') {
+            if lexical::ends_in_line_comment(&verbatim) {
+                verbatim.push('\n');
+            }
+            verbatim.push(';');
+        }
+        verbatim
     }
 
     /// Format a PL/pgSQL root node.
