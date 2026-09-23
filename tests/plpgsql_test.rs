@@ -131,7 +131,7 @@ fn sql_body_fallback() {
 // nested block ends with `;`. The output parses and is a fixed point.
 #[test]
 fn plpgsql_keeps_labels_directives_cursors_comments_and_nested_terminators() {
-    let body = "#variable_conflict use_variable\n<<outerblock>>\nDECLARE\n    c CURSOR IS SELECT * FROM t ORDER BY a;\nBEGIN\n    BEGIN\n        NULL; -- inner\n    END;\n    COMMIT;\nEND outerblock";
+    let body = "#variable_conflict use_variable\n<<outerblock>>\nDECLARE\n    c CURSOR IS SELECT * FROM t ORDER BY a;\nBEGIN\n    BEGIN\n        -- standalone\n        NULL; -- inner\n    END;\n    COMMIT;\nEND outerblock";
     for &style in Style::ALL {
         let once = format_plpgsql(body, style).unwrap();
         for piece in [
@@ -139,6 +139,7 @@ fn plpgsql_keeps_labels_directives_cursors_comments_and_nested_terminators() {
             "<<outerblock>>",
             "CURSOR IS SELECT * FROM t ORDER BY a;",
             "-- inner",
+            "-- standalone",
             " outerblock;",
         ] {
             assert!(
