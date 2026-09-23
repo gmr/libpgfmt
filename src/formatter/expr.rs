@@ -171,7 +171,7 @@ impl<'a> Formatter<'a> {
             "explicit_row" => self.format_explicit_row(node),
             "columnref" => self.format_columnref(node),
             "AexprConst" => self.format_const(node),
-            "func_expr" | "func_application" => self.format_func(node),
+            "func_expr" | "func_expr_windowless" | "func_application" => self.format_func(node),
             "case_expr" => self.format_case_expr(node),
             "target_el" => self.format_target_el(node),
             "Typename" => self.format_typename(node),
@@ -394,7 +394,9 @@ impl<'a> Formatter<'a> {
                 let formatted = match child.kind() {
                     "columnref" => self.format_columnref(child),
                     "AexprConst" => self.format_const(child),
-                    "func_expr" | "func_application" => self.format_func(child),
+                    "func_expr" | "func_expr_windowless" | "func_application" => {
+                        self.format_func(child)
+                    }
                     "case_expr" => self.format_case_expr(child),
                     "select_with_parens" => {
                         let f = self.format_select_with_parens(child);
@@ -669,7 +671,9 @@ impl<'a> Formatter<'a> {
 
     pub(crate) fn format_func(&self, node: Node<'a>) -> String {
         match node.kind() {
-            "func_expr" => {
+            // func_expr_windowless is the form a partition key or index
+            // expression uses: a func_expr that cannot carry OVER.
+            "func_expr" | "func_expr_windowless" => {
                 if let Some(app) = node.find_child("func_application") {
                     let mut result = self.format_func(app);
                     // Trailing clauses appear in grammar order:

@@ -949,8 +949,15 @@ impl<'a> Formatter<'a> {
             let cols = spec
                 .find_child("part_params")
                 .map(|pp| {
+                    // A part_elem's parentheses are literal tokens, and
+                    // PostgreSQL requires them around any key that is not a
+                    // column or a function call, so render the element as
+                    // written rather than as an expression.
                     let items = flatten_list(pp, "part_params");
-                    let formatted: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
+                    let formatted: Vec<_> = items
+                        .iter()
+                        .map(|i| self.render_clause_inline(*i))
+                        .collect();
                     formatted.join(", ")
                 })
                 .unwrap_or_default();
@@ -1898,7 +1905,9 @@ impl<'a> Formatter<'a> {
             return self.kw(self.text(node));
         }
         match kind {
-            "a_expr" | "b_expr" | "c_expr" => return self.format_expr(node),
+            "a_expr" | "b_expr" | "c_expr" | "func_expr_windowless" => {
+                return self.format_expr(node);
+            }
             "Typename" => return self.format_typename(node),
             "qualified_name" => return self.format_qualified_name(node),
             // An identifier keeps the spelling it was written with. Many are

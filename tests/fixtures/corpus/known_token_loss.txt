@@ -14,13 +14,6 @@
 0f5d2aefe1a0b324:mattmc3  drops: cast ( as )
 0f5d2aefe1a0b324:mozilla  drops: cast ( as )
 0f5d2aefe1a0b324:river  drops: cast ( as )
-109898801ef1e75d:aweber  drops: ( year from logdate ( month from logdate ) )
-109898801ef1e75d:dbt  drops: ( year from logdate ( month from logdate ) )
-109898801ef1e75d:gitlab  drops: ( year from logdate ( month from logdate ) )
-109898801ef1e75d:kickstarter  drops: ( year from logdate ( month from logdate ) )
-109898801ef1e75d:mattmc3  drops: ( year from logdate ( month from logdate ) )
-109898801ef1e75d:mozilla  drops: ( year from logdate ( month from logdate ) )
-109898801ef1e75d:river  drops: ( year from logdate ( month from logdate ) )
 134827d89a3556fb:aweber  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
 134827d89a3556fb:dbt  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
 134827d89a3556fb:gitlab  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...

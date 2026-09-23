@@ -977,3 +977,21 @@ fn explicit_row_fields_preserved() {
         );
     }
 }
+
+// A partition key keeps function arguments and the parentheses PostgreSQL
+// requires around an expression key.
+#[test]
+fn partition_key_expressions_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "CREATE TABLE m (d date) PARTITION BY RANGE (EXTRACT(YEAR FROM d), (d + 1))",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            result.contains("(EXTRACT(YEAR FROM D), (D + 1))"),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+    }
+}
