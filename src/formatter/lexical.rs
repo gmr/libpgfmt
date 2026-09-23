@@ -6,6 +6,8 @@
 //! load-bearing. This module gives those passes one shared notion of where
 //! such a span starts and ends.
 
+use std::collections::{HashMap, VecDeque};
+
 /// What a scanned span is, so a caller can treat literals and comments
 /// differently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,10 +158,20 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
 /// rendered. See https://github.com/gmr/libpgfmt/issues/57.
 pub(crate) fn restore_literals(source: &str, output: &str) -> String {
     let key = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-    let mut originals: Vec<String> = quoted_spans(source)
+    let source_chars: Vec<char> = source.chars().collect();
+    let originals: Vec<String> = quoted_spans(source)
         .into_iter()
-        .map(|(start, end)| source.chars().skip(start).take(end - start).collect())
+        .map(|(start, end)| source_chars[start..end].iter().collect())
         .collect();
+    // Each original's index, queued in source order under its exact text and
+    // under its key, so a match takes the first unclaimed one without a scan.
+    let mut by_text: HashMap<&str, VecDeque<usize>> = HashMap::new();
+    let mut by_key: HashMap<String, VecDeque<usize>> = HashMap::new();
+    for (i, original) in originals.iter().enumerate() {
+        by_text.entry(original.as_str()).or_default().push_back(i);
+        by_key.entry(key(original)).or_default().push_back(i);
+    }
+    let mut claimed = vec![false; originals.len()];
     let chars: Vec<char> = output.chars().collect();
     let spans = quoted_spans(output);
     let texts: Vec<String> = spans
@@ -171,16 +183,24 @@ pub(crate) fn restore_literals(source: &str, output: &str) -> String {
     // take the spelling that belongs to an identical literal elsewhere.
     let mut replacement: Vec<Option<String>> = vec![None; spans.len()];
     for (i, text) in texts.iter().enumerate() {
-        if let Some(pos) = originals.iter().position(|o| o == text) {
-            originals.remove(pos);
+        if let Some(pos) = by_text.get_mut(text.as_str()).and_then(VecDeque::pop_front) {
+            claimed[pos] = true;
             replacement[i] = Some(text.clone());
         }
     }
     for (i, text) in texts.iter().enumerate() {
-        if replacement[i].is_none()
-            && let Some(pos) = originals.iter().position(|o| key(o) == key(text))
-        {
-            replacement[i] = Some(originals.remove(pos));
+        if replacement[i].is_some() {
+            continue;
+        }
+        let Some(queue) = by_key.get_mut(&key(text)) else {
+            continue;
+        };
+        while let Some(pos) = queue.pop_front() {
+            if !claimed[pos] {
+                claimed[pos] = true;
+                replacement[i] = Some(originals[pos].clone());
+                break;
+            }
         }
     }
 
@@ -261,15 +281,25 @@ pub(crate) fn restore_comments(
 ) -> Option<String> {
     let source_tokens = match_tokens(&source.chars().collect::<Vec<_>>());
     let mut out = output.to_string();
-    let mut present: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for (_, text) in comments {
-        present
-            .entry(text.as_str())
-            .or_insert_with(|| output.matches(text.as_str()).count());
+    // Only whole comments count: a substring match would also find a dropped
+    // comment inside a longer one, or inside a string constant.
+    let output_chars: Vec<char> = output.chars().collect();
+    let mut present: HashMap<String, usize> = HashMap::new();
+    let mut i = 0;
+    while i < output_chars.len() {
+        if let Some((span, end)) = scan(&output_chars, i) {
+            if matches!(span, Span::LineComment | Span::BlockComment) {
+                let text: String = output_chars[i..end].iter().collect();
+                *present.entry(text.trim_end().to_string()).or_default() += 1;
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
     }
     let mut leading = Vec::new();
     for (offset, text) in comments {
-        if let Some(n) = present.get_mut(text.as_str())
+        if let Some(n) = present.get_mut(text)
             && *n > 0
         {
             *n -= 1;
@@ -470,6 +500,17 @@ mod tests {
             restore_comments(kept, &[(9, "-- x".to_string())], kept).unwrap(),
             kept
         );
+        // Only a whole comment counts as present, not one inside another
+        // comment or inside a string constant.
+        for (output, restored) in [
+            ("SELECT 1 -- x y", "SELECT 1 -- x y\n-- x"),
+            ("SELECT 1, '-- x'", "SELECT 1, '-- x' -- x"),
+        ] {
+            assert_eq!(
+                restore_comments("SELECT 1 -- x", &[(9, "-- x".to_string())], output).unwrap(),
+                restored
+            );
+        }
         // The anchor was rewritten: no place for the comment.
         assert!(
             restore_comments(
