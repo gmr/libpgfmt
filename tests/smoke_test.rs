@@ -1151,3 +1151,24 @@ fn empty_column_list_preserved() {
         }
     }
 }
+
+// An ERROR node's text is never rendered, so even a short one nested inside a
+// statement is rejected rather than silently dropped.
+#[test]
+fn nested_error_node_is_rejected() {
+    for sql in [
+        "SELECT * FROM tab WHERE lower(col) = LOWER(?)",
+        "SET LOCAL search_path TO @extschema@, pg_temp",
+    ] {
+        for &style in Style::ALL {
+            assert!(
+                matches!(
+                    format(sql, style),
+                    Err(libpgfmt::error::FormatError::Syntax(_))
+                ),
+                "\nStyle: {style}\nInput: {sql}\nGot: {:?}",
+                format(sql, style)
+            );
+        }
+    }
+}
