@@ -20,7 +20,6 @@
 4f2aa9162cd37215  drops: 2 'two' union all select ,
 6031e25d1b0e22e6  drops: '[{\"a\":\"1\"},\n {\"b\":\"2\",\"b\":\"3\"}]'
 628c948273a10f52  drops: union all n + 1 where n < 100 select ( n ) from t
-699860c58c5a0243  drops: limit 10000
 71f57c93dcef83a7  drops: ( t. * , 42 )
 7e1dcb11cd19078f  drops: ( js , '$.favorites[*]' columns ( id for ordinality , kind text pat...
 80f0fb3ee4a2ac6a  drops: as d
@@ -38,7 +37,6 @@ c443608aa60a0d8c  drops: id link data ( ( t.f1 t.f2 ) , , , ( t.f1 , t.f2 ) , ) 
 c78ba85af91a4f0b  drops: using ~ < ~
 ccd523c059a78328  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
 d4dca78e451567da  drops: ( v order by v desc )
-d8765d8dffda59ef  drops: limit 5000
 d9a78e7b01c8e0a7  drops: with ordinality
 e026fa0c46c28449  drops: id link data depth ( g.f1 g.f2 , , , , ( g.f1 , g.f2 ) ( ) , path (...
 e59fc5a348a37823  drops: 'CREATE OR REPLACE FUNCTION cs_find_referrer_type(v_host varchar,\n...

@@ -125,6 +125,13 @@ impl<'a> Formatter<'a> {
                 "limit_clause" => {
                     self.collect_limit_clauses(*child, clauses);
                 }
+                // LIMIT written after the locking clause (`FOR UPDATE LIMIT
+                // 10`). PostgreSQL accepts either order with one meaning.
+                "opt_select_limit" => {
+                    if let Some(limit) = child.find_child("select_limit") {
+                        self.collect_limit_clauses(limit, clauses);
+                    }
+                }
                 "offset_clause" => clauses.offset_clause = Some(*child),
                 "window_clause" => clauses.window_clause = Some(*child),
                 "for_locking_clause" => clauses.for_locking = Some(*child),
