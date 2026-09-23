@@ -64,9 +64,12 @@ def first_statement(text):
                 rest = text[i + 1 :]
                 # Inside BEGIN ATOMIC ... END a `;` ends a body statement,
                 # not the CREATE FUNCTION; cutting there left a fragment.
-                inside_atomic = re.search(
-                    r"\bbegin\s+atomic\b", text[:i], re.I
-                ) and not re.search(r"\bend\s*$", text[:i], re.I)
+                # The body is closed by the first END that no CASE opened.
+                atomic = re.search(r"\bbegin\s+atomic\b", text[:i], re.I)
+                body = text[atomic.end() : i] if atomic else ""
+                inside_atomic = atomic and len(
+                    re.findall(r"\bend\b", body, re.I)
+                ) <= len(re.findall(r"\bcase\b", body, re.I))
                 if not inside_atomic and (
                     not rest.strip() or rest.lstrip(" \t").startswith("\n")
                 ):
