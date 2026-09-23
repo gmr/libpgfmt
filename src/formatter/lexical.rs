@@ -186,6 +186,7 @@ pub(crate) fn restore_literals(source: &str, output: &str) -> String {
 
     // Layout only adds whitespace, so a group whose output literals are the
     // originals over again was not changed, only perhaps reordered: leave it.
+    // So is one that gained or lost a literal, which pairing would shift.
     // Otherwise the n-th output literal takes the n-th original, as the
     // formatter keeps literals in source order. Matching exact text first is
     // wrong here: layout can indent a literal until it equals a different
@@ -196,7 +197,7 @@ pub(crate) fn restore_literals(source: &str, output: &str) -> String {
         let mut have: Vec<&str> = outputs.iter().map(|&i| texts[i].as_str()).collect();
         want.sort_unstable();
         have.sort_unstable();
-        if want != have {
+        if want != have && sources.len() == outputs.len() {
             for (&o, &s) in outputs.iter().zip(sources) {
                 replacement[o] = Some(&originals[s]);
             }
@@ -476,6 +477,12 @@ mod tests {
         assert_eq!(
             restore_literals("f('p\nq', 'p\n  q')", "f('p\n  q',\n  'p\n    q')"),
             "f('p\nq',\n  'p\n  q')"
+        );
+        // A literal the formatter dropped or rewrote leaves the counts
+        // unequal: the group is left alone rather than paired off by one.
+        assert_eq!(
+            restore_literals("f('a b', 'ab')", "f(x, 'ab')"),
+            "f(x, 'ab')"
         );
         // Reordered but not changed: left alone.
         assert_eq!(
