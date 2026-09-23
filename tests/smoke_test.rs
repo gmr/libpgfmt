@@ -1133,3 +1133,21 @@ fn foreign_table_header_preserved() {
         }
     }
 }
+
+// An empty column list is still written: PostgreSQL requires it before
+// INHERITS or SERVER when the table has no columns of its own.
+#[test]
+fn empty_column_list_preserved() {
+    for (sql, piece) in [
+        ("CREATE TABLE c () INHERITS (p)", "TABLE C ()"),
+        ("CREATE FOREIGN TABLE f () SERVER s", "TABLE F ()"),
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap().to_uppercase();
+            assert!(
+                result.contains(piece),
+                "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+            );
+        }
+    }
+}

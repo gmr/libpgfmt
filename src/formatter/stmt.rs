@@ -778,6 +778,11 @@ impl<'a> Formatter<'a> {
 
         let mut lines = Vec::new();
         if elem_list.is_none() {
+            // An empty `()` is still required before INHERITS or SERVER.
+            let mut cursor = node.walk();
+            if node.children(&mut cursor).any(|c| c.kind() == "(") {
+                header.push_str(" ()");
+            }
             lines.push(header);
         } else {
             lines.push(format!("{header} ("));
@@ -1764,6 +1769,11 @@ impl<'a> Formatter<'a> {
 
         let mut lines = Vec::new();
         if elem_list.is_none() {
+            // An empty `()` is still required before INHERITS or SERVER.
+            let mut cursor = node.walk();
+            if node.children(&mut cursor).any(|c| c.kind() == "(") {
+                header.push_str(" ()");
+            }
             lines.push(header);
         } else {
             lines.push(format!("{header} ("));
