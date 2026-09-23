@@ -82,23 +82,44 @@ fn known_token_loss() -> HashMap<String, String> {
 /// The tokens of `sql`, lowercased, with whitespace and identifier quoting
 /// dropped. String literals stay whole so their contents are compared exactly.
 fn tokens(sql: &str) -> Vec<String> {
+    let chars: Vec<char> = sql.chars().collect();
     let mut out = Vec::new();
     let mut word = String::new();
-    let mut chars = sql.chars().peekable();
-    while let Some(c) = chars.next() {
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '$'
+            && word.is_empty()
+            && let Some((tag_end, close)) = dollar_quote(&chars, i)
+        {
+            // A dollar-quoted body is tokenized on its own, between its
+            // delimiters. Quotes inside it are confined to it, and libpgfmt's
+            // deliberate re-indentation of a body changes only whitespace.
+            let delimiter: String = chars[i..tag_end].iter().collect();
+            let body: String = chars[tag_end..close].iter().collect();
+            out.push(delimiter.clone());
+            out.extend(tokens(&body));
+            out.push(delimiter);
+            i = (close + tag_end - i).min(chars.len());
+            continue;
+        }
         if c == '\'' {
             if !word.is_empty() {
                 out.push(std::mem::take(&mut word));
             }
             let mut literal = String::from("'");
-            for c in chars.by_ref() {
-                literal.push(c);
-                if c == '\'' {
+            i += 1;
+            while i < chars.len() {
+                literal.push(chars[i]);
+                i += 1;
+                if chars[i - 1] == '\'' {
                     break;
                 }
             }
             out.push(literal);
-        } else if c.is_alphanumeric() || c == '_' || c == '.' || c == '$' {
+            continue;
+        }
+        if c.is_alphanumeric() || c == '_' || c == '.' || c == '$' {
             word.push(c.to_ascii_lowercase());
         } else {
             if !word.is_empty() {
@@ -108,50 +129,31 @@ fn tokens(sql: &str) -> Vec<String> {
                 out.push(c.to_string());
             }
         }
+        i += 1;
     }
     if !word.is_empty() {
         out.push(word);
     }
-    out.into_iter().flat_map(split_dollar_delimiters).collect()
+    out
 }
 
-/// Split `$tag$` delimiters out of a token. A closing delimiter is found by
-/// searching the body, not by token rules, so `END$$` in the input and `END`
-/// then `$$` in the output are the same text and must tokenize the same way.
-///
-/// This applies to quote-started tokens too: a `'` inside a dollar-quoted body
-/// is not a quote, and the tokenizer, which does not track dollar quoting, can
-/// run a "literal" across the body's closing delimiter.
-fn split_dollar_delimiters(word: String) -> Vec<String> {
-    let bytes: Vec<char> = word.chars().collect();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == '$' {
-            let mut j = i + 1;
-            while j < bytes.len() && (bytes[j].is_alphanumeric() || bytes[j] == '_') {
-                j += 1;
-            }
-            if j < bytes.len()
-                && bytes[j] == '$'
-                && !bytes[i + 1..j].first().is_some_and(char::is_ascii_digit)
-            {
-                let before: String = bytes[..i].iter().collect();
-                let delimiter: String = bytes[i..=j].iter().collect();
-                let after: String = bytes[j + 1..].iter().collect();
-                let mut out = Vec::new();
-                if !before.is_empty() {
-                    out.push(before);
-                }
-                out.push(delimiter);
-                if !after.is_empty() {
-                    out.extend(split_dollar_delimiters(after));
-                }
-                return out;
-            }
-        }
-        i += 1;
+/// For a dollar quote opening at `i`, the index just past the opening
+/// delimiter and the index where the closing one starts. `None` when the `$`
+/// is something else, such as a positional parameter `$1`.
+fn dollar_quote(chars: &[char], i: usize) -> Option<(usize, usize)> {
+    let mut j = i + 1;
+    while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+        j += 1;
     }
-    vec![word]
+    if j >= chars.len() || chars[j] != '$' || chars.get(i + 1).is_some_and(char::is_ascii_digit) {
+        return None;
+    }
+    let tag = &chars[i..=j];
+    let body = j + 1;
+    let close = (body..=chars.len().saturating_sub(tag.len()))
+        .find(|&k| &chars[k..k + tag.len()] == tag)
+        .unwrap_or(chars.len());
+    Some((body, close))
 }
 
 /// Rewrites that both sides get, so the deliberate normalizations the

@@ -1,6 +1,6 @@
 /// Statement-level formatting: dispatches to specific statement formatters.
 use crate::error::FormatError;
-use crate::node_helpers::{NodeExt, flatten_list};
+use crate::node_helpers::{NodeExt, flatten_list, flatten_list_keeping_comments};
 use tree_sitter::Node;
 
 use super::Formatter;
@@ -803,21 +803,25 @@ impl<'a> Formatter<'a> {
             if self.config.river {
                 // River style: PRIMARY KEY first, padded columns, constraint
                 // on separate indented line.
-                let mut pk_elements: Vec<(String, Vec<String>)> = Vec::new();
-                let mut col_elements: Vec<(String, String, String, Vec<String>)> = Vec::new();
-                let mut constraint_elements: Vec<(Option<String>, String, Vec<String>)> =
+                // Each element keeps its source text, so that its literals can
+                // be restored before the reordering below: see
+                // lexical::restore_literals.
+                let mut pk_elements: Vec<(String, Vec<String>, &str)> = Vec::new();
+                let mut col_elements: Vec<(String, String, String, Vec<String>, &str)> = Vec::new();
+                let mut constraint_elements: Vec<(Option<String>, String, Vec<String>, &str)> =
                     Vec::new();
 
                 for (elem_node, comments) in &grouped {
+                    let src = self.text(*elem_node);
                     match self.classify_table_element(*elem_node) {
                         TableElementKind::PrimaryKey(text) => {
-                            pk_elements.push((text, comments.clone()));
+                            pk_elements.push((text, comments.clone(), src));
                         }
                         TableElementKind::Column(name, typename, constraints) => {
-                            col_elements.push((name, typename, constraints, comments.clone()));
+                            col_elements.push((name, typename, constraints, comments.clone(), src));
                         }
                         TableElementKind::Constraint(name, body) => {
-                            constraint_elements.push((name, body, comments.clone()));
+                            constraint_elements.push((name, body, comments.clone(), src));
                         }
                     }
                 }
@@ -836,11 +840,11 @@ impl<'a> Formatter<'a> {
 
                 // Build ordered list of (rendered item, trailing comments):
                 // PKs first, then columns, then constraints.
-                let mut all_items: Vec<(String, Vec<String>)> = Vec::new();
-                for (pk, comments) in &pk_elements {
-                    all_items.push((pk.clone(), comments.clone()));
+                let mut all_items: Vec<(String, Vec<String>, &str)> = Vec::new();
+                for (pk, comments, src) in &pk_elements {
+                    all_items.push((pk.clone(), comments.clone(), src));
                 }
-                for (name, typename, constraints, comments) in &col_elements {
+                for (name, typename, constraints, comments, src) in &col_elements {
                     all_items.push((
                         render_aligned_column(
                             name,
@@ -850,11 +854,12 @@ impl<'a> Formatter<'a> {
                             max_type_len,
                         ),
                         comments.clone(),
+                        src,
                     ));
                 }
                 // Table constraints: CONSTRAINT name on one line,
                 // CHECK(...) on the next, both aligned with the type column.
-                for (name, body, comments) in &constraint_elements {
+                for (name, body, comments, src) in &constraint_elements {
                     let constraint_padding = " ".repeat(max_name_len + 1);
                     if let Some(cname) = name {
                         all_items.push((
@@ -863,9 +868,14 @@ impl<'a> Formatter<'a> {
                                 self.kw("CONSTRAINT")
                             ),
                             comments.clone(),
+                            src,
                         ));
                     } else {
-                        all_items.push((format!("{constraint_padding}{body}"), comments.clone()));
+                        all_items.push((
+                            format!("{constraint_padding}{body}"),
+                            comments.clone(),
+                            src,
+                        ));
                     }
                 }
 
@@ -873,7 +883,7 @@ impl<'a> Formatter<'a> {
                 // comma on the last line (constraints span two lines).
                 let mut rendered: Vec<(Vec<String>, Vec<String>)> = Vec::new();
                 let total = all_items.len();
-                for (i, (item, comments)) in all_items.iter().enumerate() {
+                for (i, (item, comments, src)) in all_items.iter().enumerate() {
                     let comma = if i < total - 1 { "," } else { "" };
                     let mut phys: Vec<String> = Vec::new();
                     if item.contains('\n') {
@@ -888,6 +898,10 @@ impl<'a> Formatter<'a> {
                     } else {
                         phys.push(format!("{indent}{item}{comma}"));
                     }
+                    let phys = lexical::restore_literals(src, &phys.join("\n"))
+                        .split('\n')
+                        .map(String::from)
+                        .collect();
                     rendered.push((phys, comments.clone()));
                 }
 
@@ -1040,14 +1054,13 @@ impl<'a> Formatter<'a> {
     /// Comments interspersed within the list parse as siblings of the
     /// elements; a comment after the last element parses as a direct child of
     /// the statement node, between the list and the closing paren. Comments
-    /// after the closing paren belong to later clauses (SERVER, OPTIONS, WITH,
-    /// INHERITS, a partition spec, ...) and are left for those to handle.
+    /// after the closing paren are put back by `Formatter::restore_comments`.
     fn collect_table_elements(
         &self,
         node: Node<'a>,
         elem_list: Node<'a>,
     ) -> (Vec<String>, Vec<(Node<'a>, Vec<String>)>) {
-        let raw = flatten_list(elem_list, elem_list.kind());
+        let raw = flatten_list_keeping_comments(elem_list, elem_list.kind());
         let (group_leading, mut grouped) = self.group_table_elements(&raw);
         let list_start = elem_list.start_byte();
         let close_paren = {
@@ -1074,7 +1087,7 @@ impl<'a> Formatter<'a> {
                     None => before_list.push(text),
                 }
             }
-            // Comments after the closing paren belong to a later clause.
+            // Comments after the closing paren are put back later.
         }
         let mut leading = before_list;
         leading.extend(group_leading);
@@ -1592,6 +1605,26 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// The LANGUAGE of the function an option item belongs to, lower-cased
+    /// and unquoted.
+    fn function_language(&self, item: Node<'a>) -> Option<String> {
+        let mut stmt = item;
+        while !matches!(stmt.kind(), "CreateFunctionStmt") {
+            stmt = stmt.parent()?;
+        }
+        let mut stack = vec![stmt];
+        while let Some(node) = stack.pop() {
+            if node.kind() == "createfunc_opt_item"
+                && node.has_child("kw_language")
+                && let Some(lang) = node.find_child("NonReservedWord_or_Sconst")
+            {
+                return Some(self.text(lang).trim_matches('\'').to_lowercase());
+            }
+            stack.extend(node.named_children_vec());
+        }
+        None
+    }
+
     fn format_createfunc_opt_item(&self, node: Node<'a>, parts: &mut Vec<String>) {
         if node.has_child("kw_language") {
             if let Some(lang) = node.find_child("NonReservedWord_or_Sconst") {
@@ -1609,7 +1642,19 @@ impl<'a> Formatter<'a> {
             // the original structure.
             let text = self.text(child).trim();
             if let Some((tag, body)) = parse_dollar_quoted(text) {
-                if body.contains('\n') {
+                // The body is a string constant. Re-laying it out is safe
+                // only in a language where whitespace outside strings means
+                // nothing, and only when no string in it spans a line;
+                // anything else -- PL/Perl, PL/Python, a multi-line literal
+                // in PL/pgSQL -- is emitted exactly as written. See
+                // https://github.com/gmr/libpgfmt/issues/57.
+                let relayout = self
+                    .function_language(node)
+                    .is_some_and(|l| l == "sql" || l == "plpgsql")
+                    && lexical::layout_is_safe(body);
+                if !relayout {
+                    parts.push(format!("{} {text}", self.kw("AS")));
+                } else if body.contains('\n') {
                     let body = reindent_body(body, " ");
                     parts.push(format!("{} {tag}\n{body}\n{tag}", self.kw("AS")));
                 } else {

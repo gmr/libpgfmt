@@ -163,6 +163,13 @@ const PG_TYPE_MAP: &[(&str, &str)] = &[
 impl<'a> Formatter<'a> {
     /// Format any expression node into inline SQL text.
     pub(crate) fn format_expr(&self, node: Node<'a>) -> String {
+        // A comment is not part of the expression. Rendered inline, a `--`
+        // comment swallowed the rest of its line; Formatter::restore_comments
+        // puts it back at a line end instead. See
+        // https://github.com/gmr/libpgfmt/issues/63.
+        if node.is_extra() {
+            return String::new();
+        }
         match node.kind() {
             "a_expr" | "b_expr" => self.format_a_expr(node),
             "a_expr_prec" => self.format_a_expr_prec(node),
@@ -314,6 +321,10 @@ impl<'a> Formatter<'a> {
     /// When a part contains newlines, continuation lines are indented
     /// to align with where that part starts in the joined output.
     fn join_with_multiline_indent(parts: &[String]) -> String {
+        // An empty part -- a comment, which renders as nothing -- would
+        // leave a doubled space.
+        let parts: Vec<String> = parts.iter().filter(|p| !p.is_empty()).cloned().collect();
+        let parts = parts.as_slice();
         if parts.is_empty() {
             return String::new();
         }

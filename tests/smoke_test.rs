@@ -1172,3 +1172,133 @@ fn nested_error_node_is_rejected() {
         }
     }
 }
+
+// https://github.com/gmr/libpgfmt/issues/57: a newline inside a string
+// constant is data. Layout must not indent the line after it, and formatting
+// must be a fixed point for it.
+#[test]
+fn multiline_literal_is_not_reindented() {
+    let sql = "SELECT js FROM (VALUES ('[{\"a\":\"1\"},\n {\"b\":\"2\"}]')) foo(js)";
+    for &style in Style::ALL {
+        let once = format(sql, style).unwrap();
+        assert!(
+            once.contains("'[{\"a\":\"1\"},\n {\"b\":\"2\"}]'"),
+            "\nStyle: {style}\nGot:\n{once}"
+        );
+        assert_eq!(once, format(&once, style).unwrap(), "\nStyle: {style}");
+    }
+}
+
+// https://github.com/gmr/libpgfmt/issues/57: a function body is a string
+// constant. It is re-laid out only in SQL or PL/pgSQL, and only when no string
+// inside it spans a line; otherwise it is emitted exactly as written.
+#[test]
+fn function_bodies_are_only_relaid_out_when_safe() {
+    let verbatim = [
+        (
+            "CREATE FUNCTION pymax(a int, b int) RETURNS int AS $$\nif a > b:\n    return a\nreturn b\n$$ LANGUAGE plpython3u",
+            "$$\nif a > b:\n    return a\nreturn b\n$$",
+        ),
+        (
+            "CREATE FUNCTION f() RETURNS text AS $$\nBEGIN\n    RETURN 'one\n  two';\nEND\n$$ LANGUAGE plpgsql",
+            "$$\nBEGIN\n    RETURN 'one\n  two';\nEND\n$$",
+        ),
+    ];
+    for &style in Style::ALL {
+        for (sql, body) in verbatim {
+            let result = format(sql, style).unwrap();
+            assert!(result.contains(body), "\nStyle: {style}\nGot:\n{result}");
+        }
+    }
+    // An ordinary PL/pgSQL body keeps the usual layout.
+    let result = format(
+        "CREATE FUNCTION f() RETURNS int AS $$\n        BEGIN\n            RETURN 1;\n        END\n$$ LANGUAGE plpgsql",
+        Style::River,
+    )
+    .unwrap();
+    assert!(
+        result.contains("$$\n BEGIN\n     RETURN 1;\n END\n$$"),
+        "Got:\n{result}"
+    );
+}
+
+// https://github.com/gmr/libpgfmt/issues/62: comments inside a statement are
+// kept, the output still parses, and formatting is a fixed point. A comment in
+// a comma list used to become an empty element and break the SQL.
+#[test]
+fn comments_inside_statements_preserved() {
+    let cases = [
+        "SELECT a, -- first\n       b /* inline */, c\n  FROM t -- source\n WHERE x = 1 -- one\n   AND y = 2",
+        "WITH w AS ( -- cte\n  SELECT 1 AS n -- inner\n)\nSELECT n FROM w",
+        "CREATE FUNCTION f(\n    a IN int,\n    c OUT int) -- and this\nAS $$ BEGIN c := a; END $$ LANGUAGE plpgsql",
+        "CREATE TABLE t (id int -- the id\n)",
+    ];
+    for &style in Style::ALL {
+        for sql in cases {
+            let once = format(sql, style).unwrap();
+            for comment in sql
+                .split('\n')
+                .filter_map(|l| l.find("--").map(|i| l[i..].trim_end()))
+            {
+                assert!(
+                    once.contains(comment),
+                    "\nStyle: {style}\nmissing {comment:?} in:\n{once}"
+                );
+            }
+            let twice = format(&once, style).unwrap_or_else(|e| {
+                panic!("\nStyle: {style}\nFormatted to:\n{once}\nWhich fails: {e}")
+            });
+            assert_eq!(once, twice, "\nStyle: {style}\nInput:\n{sql}");
+        }
+    }
+}
+
+// https://github.com/gmr/libpgfmt/issues/63: a comment inside an expression no
+// longer swallows the rest of its line, and a comment after a statement's `;`
+// stays on that line.
+#[test]
+fn comment_inside_expression_and_after_statement() {
+    for &style in Style::ALL {
+        for sql in [
+            "SELECT a FROM t WHERE x IN -- note\n (SELECT 1)",
+            "SELECT 1; -- why",
+        ] {
+            let once = format(sql, style).unwrap();
+            assert!(once.contains("-- "), "\nStyle: {style}\nGot:\n{once}");
+            let twice = format(&once, style).unwrap_or_else(|e| {
+                panic!("\nStyle: {style}\nFormatted to:\n{once}\nWhich fails: {e}")
+            });
+            assert_eq!(once, twice, "\nStyle: {style}\nInput:\n{sql}");
+        }
+    }
+}
+
+// Input with no statement is not a syntax error: comments are kept, and a bare
+// `;` formats to nothing.
+#[test]
+fn comment_only_input() {
+    for &style in Style::ALL {
+        assert_eq!(format("-- note", style).unwrap(), "-- note");
+        assert_eq!(format("/* note */", style).unwrap(), "/* note */");
+        assert_eq!(format(";", style).unwrap(), "");
+    }
+}
+
+// River style moves table constraints after the columns. Two literals that
+// differ only in whitespace keep their own values through that reorder.
+#[test]
+fn reordered_table_elements_keep_their_literals() {
+    let sql = "CREATE TABLE t (CONSTRAINT c CHECK (b <> 'p\n  q'), b text DEFAULT 'p\nq')";
+    for &style in Style::ALL {
+        let once = format(sql, style).unwrap().to_lowercase();
+        let after = |marker: &str| once.split(marker).nth(1).unwrap_or_default().to_string();
+        assert!(
+            after("default ").starts_with("'p\nq'"),
+            "\nStyle: {style}\nGot:\n{once}"
+        );
+        assert!(
+            after("<> ").starts_with("'p\n  q'"),
+            "\nStyle: {style}\nGot:\n{once}"
+        );
+    }
+}

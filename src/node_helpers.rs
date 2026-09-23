@@ -51,8 +51,19 @@ impl<'a> NodeExt<'a> for Node<'a> {
 /// In the tree-sitter-postgres grammar, lists are encoded as left-recursive rules:
 ///   target_list -> target_list ',' target_el | target_el
 ///
-/// This function collects all the non-list leaf items.
+/// This function collects all the non-list leaf items. Comments are not
+/// items: rendered as one, a comment became an empty list element, which
+/// left a stray comma or commented one out. Formatting drops them and
+/// `Formatter::restore_comments` puts them back.
 pub(crate) fn flatten_list<'a>(node: Node<'a>, list_kind: &str) -> Vec<Node<'a>> {
+    let mut items = flatten_list_keeping_comments(node, list_kind);
+    items.retain(|item| !item.is_extra());
+    items
+}
+
+/// Like [`flatten_list`], but comments stay in the list, in source order, for
+/// a renderer that attaches them to the element they follow.
+pub(crate) fn flatten_list_keeping_comments<'a>(node: Node<'a>, list_kind: &str) -> Vec<Node<'a>> {
     let mut items = Vec::new();
     flatten_list_inner(node, list_kind, &mut items);
     items

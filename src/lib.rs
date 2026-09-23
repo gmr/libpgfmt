@@ -105,13 +105,8 @@ pub fn format(sql: &str, style: Style) -> Result<String, FormatError> {
         .parse(&input, None)
         .ok_or_else(|| FormatError::Parser("Failed to parse SQL".into()))?;
     let root = tree.root_node();
-    // The tree-sitter-postgres grammar doesn't handle some valid SQL
-    // constructs (e.g., decimal literals like 800.00). When errors are
-    // limited to leaf nodes, attempt to format anyway so the rest of the
-    // statement is still properly styled. Only bail out when the tree
-    // structure is fundamentally broken (ERROR at the top level wrapping
-    // major statement parts).
-    if root.has_error() && has_structural_error(&root) {
+    // Any ERROR or MISSING node rejects the input; see has_structural_error.
+    if has_structural_error(&root) {
         return Err(FormatError::Syntax(find_error_message(&root, &input)));
     }
     let fmt = Formatter::new(&input, style);
@@ -177,12 +172,11 @@ pub fn format_plpgsql(code: &str, style: Style) -> Result<String, FormatError> {
 /// only inputs with an ERROR node are ones that are not PostgreSQL (`?` and
 /// `@extschema@` placeholders), so rejecting them costs nothing valid. See
 /// https://github.com/gmr/libpgfmt/issues/58.
+///
+/// Input with no statement but no error either -- only comments, or a bare
+/// `;` -- is not rejected: it formats to its comments.
 fn has_structural_error(root: &tree_sitter::Node) -> bool {
-    let mut cursor = root.walk();
-    let has_valid_stmt = root
-        .named_children(&mut cursor)
-        .any(|c| c.kind() == "toplevel_stmt");
-    !has_valid_stmt || root.has_error()
+    root.has_error()
 }
 
 fn find_error_message(node: &tree_sitter::Node, source: &str) -> String {
