@@ -4,6 +4,7 @@ use crate::node_helpers::{NodeExt, flatten_list};
 use tree_sitter::Node;
 
 use super::Formatter;
+use super::lexical;
 
 /// Classification of table elements for river-style CREATE TABLE.
 enum TableElementKind {
@@ -36,7 +37,7 @@ impl<'a> Formatter<'a> {
                 }
                 _ => {
                     let text = self.text(child);
-                    normalize_whitespace_preserving_comments(text)
+                    normalize_whitespace(text)
                 }
             };
             let trimmed = result.trim_end_matches(';');
@@ -70,7 +71,7 @@ impl<'a> Formatter<'a> {
         // INSERT INTO target.
         let target = node
             .find_child("insert_target")
-            .map(|n| self.format_qualified_name_from(n))
+            .map(|n| self.format_insert_target(n))
             .unwrap_or_default();
         parts.push(format!(
             "{} {} {target}",
@@ -777,6 +778,11 @@ impl<'a> Formatter<'a> {
 
         let mut lines = Vec::new();
         if elem_list.is_none() {
+            // An empty `()` is still required before INHERITS or SERVER.
+            let mut cursor = node.walk();
+            if node.children(&mut cursor).any(|c| c.kind() == "(") {
+                header.push_str(" ()");
+            }
             lines.push(header);
         } else {
             lines.push(format!("{header} ("));
@@ -949,8 +955,15 @@ impl<'a> Formatter<'a> {
             let cols = spec
                 .find_child("part_params")
                 .map(|pp| {
+                    // A part_elem's parentheses are literal tokens, and
+                    // PostgreSQL requires them around any key that is not a
+                    // column or a function call, so render the element as
+                    // written rather than as an expression.
                     let items = flatten_list(pp, "part_params");
-                    let formatted: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
+                    let formatted: Vec<_> = items
+                        .iter()
+                        .map(|i| self.render_clause_inline(*i))
+                        .collect();
                     formatted.join(", ")
                 })
                 .unwrap_or_default();
@@ -1381,6 +1394,10 @@ impl<'a> Formatter<'a> {
             head.push(self.kw(normalize_whitespace(self.text(temp)).as_str()));
         }
 
+        if node.has_child("kw_recursive") {
+            head.push(self.kw("RECURSIVE"));
+        }
+
         head.push(self.kw("VIEW"));
         let mut prefix = head.join(" ");
 
@@ -1390,12 +1407,42 @@ impl<'a> Formatter<'a> {
             .or_else(|| node.find_child("view_name"))
             .map(|n| self.format_qualified_name(n))
             .unwrap_or_default();
-        prefix = format!("{prefix} {name} {}", self.kw("AS"));
+        prefix = format!("{prefix} {name}");
+
+        // Column names, required for a RECURSIVE view.
+        // A plain view nests the list under opt_column_list.
+        if let Some(columns) = node.find_child("columnList").or_else(|| {
+            node.find_child("opt_column_list")
+                .and_then(|n| n.find_child("columnList"))
+        }) {
+            prefix = format!("{prefix} ({})", self.render_clause_inline(columns));
+        }
+
+        // WITH (security_barrier, check_option = ...). security_barrier is
+        // what keeps a view's WHERE from being bypassed by a leaky function,
+        // so dropping it is a security change -- see
+        // https://github.com/gmr/libpgfmt/issues/58.
+        if let Some(options) = node.find_child("opt_reloptions") {
+            let options = self.render_clause_inline(options);
+            if !options.is_empty() {
+                prefix = format!("{prefix} {options}");
+            }
+        }
+        prefix = format!("{prefix} {}", self.kw("AS"));
+
+        // WITH [CASCADED | LOCAL] CHECK OPTION, which makes writes through
+        // the view obey its WHERE clause.
+        let check_option = node
+            .find_child("opt_check_option")
+            .map(|n| self.render_clause_inline(n))
+            .filter(|t| !t.is_empty())
+            .map(|t| format!("\n{t}"))
+            .unwrap_or_default();
 
         // The SELECT body.
         if let Some(select) = node.find_child("SelectStmt") {
             let body = self.format_select_stmt(select);
-            format!("{prefix}\n{}", body.trim_end_matches(';'))
+            format!("{prefix}\n{}{check_option}", body.trim_end_matches(';'))
         } else {
             prefix
         }
@@ -1404,26 +1451,22 @@ impl<'a> Formatter<'a> {
     // ── CREATE TABLE AS / CREATE MATERIALIZED VIEW ──────────────────────
 
     fn format_create_table_as_stmt(&self, node: Node<'a>) -> String {
-        let kind = node.kind();
-        let mut prefix_parts = vec![self.kw("CREATE")];
-
-        if kind == "CreateMatViewStmt" {
-            prefix_parts.push(self.kw("MATERIALIZED"));
-            prefix_parts.push(self.kw("VIEW"));
-        } else {
-            // Could be CREATE TABLE AS or CREATE MATERIALIZED VIEW AS.
-            if node.has_child("kw_materialized") {
-                prefix_parts.push(self.kw("MATERIALIZED"));
-                prefix_parts.push(self.kw("VIEW"));
-            } else {
-                prefix_parts.push(self.kw("TABLE"));
+        // Everything before AS, in order: CREATE [UNLOGGED] MATERIALIZED VIEW
+        // [IF NOT EXISTS] name [(cols)] [USING am] [WITH (...)] [TABLESPACE
+        // ts]. Picking these out one by one dropped every one not picked --
+        // see https://github.com/gmr/libpgfmt/issues/58.
+        let mut prefix_parts = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "kw_as" {
+                break;
+            }
+            let piece = self.render_clause_inline(child);
+            if !piece.is_empty() {
+                prefix_parts.push(piece);
             }
         }
-
-        let name = self.find_name_in_create(node);
-        prefix_parts.push(name);
         prefix_parts.push(self.kw("AS"));
-
         let prefix = prefix_parts.join(" ");
 
         // The SELECT body.
@@ -1438,16 +1481,13 @@ impl<'a> Formatter<'a> {
 
         let body = body.trim_end_matches(';');
 
-        // Check for WITH NO DATA.
-        let mut suffix = String::new();
-        if node.has_child("kw_no") || self.text(node).contains("WITH NO DATA") {
-            suffix = format!(
-                "\n{} {} {}",
-                self.kw("WITH"),
-                self.kw("NO"),
-                self.kw("DATA")
-            );
-        }
+        // WITH [NO] DATA.
+        let suffix = node
+            .find_child("opt_with_data")
+            .map(|n| self.render_clause_inline(n))
+            .filter(|t| !t.is_empty())
+            .map(|t| format!("\n{t}"))
+            .unwrap_or_default();
 
         format!("{prefix}\n{body}{suffix}")
     }
@@ -1684,20 +1724,63 @@ impl<'a> Formatter<'a> {
             .find_child("qualified_name")
             .map(|n| self.format_qualified_name(n))
             .unwrap_or_default();
+        let if_not_exists = if node.has_child("kw_if") {
+            format!(
+                "{} {} {} ",
+                self.kw("IF"),
+                self.kw("NOT"),
+                self.kw("EXISTS")
+            )
+        } else {
+            String::new()
+        };
 
-        let mut lines = Vec::new();
-        lines.push(format!(
-            "{} {} {} {table_name} (",
+        let mut header = format!(
+            "{} {} {} {if_not_exists}{table_name}",
             self.kw("CREATE"),
             self.kw("FOREIGN"),
             self.kw("TABLE")
-        ));
+        );
 
-        // Column definitions (same as CREATE TABLE).
-        if let Some(elem_list) = node
+        // `PARTITION OF parent ... FOR VALUES ...`, as in CREATE TABLE.
+        // Dropping it made the table a plain foreign table with an empty
+        // column list -- see https://github.com/gmr/libpgfmt/issues/58.
+        let parent = node
+            .named_children_vec()
+            .into_iter()
+            .filter(|c| c.kind() == "qualified_name")
+            .nth(1);
+        if let Some(parent) = parent.filter(|_| node.has_child("kw_partition")) {
+            header.push_str(&format!(
+                " {} {}",
+                self.kw_pair("PARTITION", "OF"),
+                self.format_qualified_name(parent)
+            ));
+        }
+
+        // A partition may omit the element list entirely.
+        let elem_list = node
             .find_child("OptTableElementList")
             .and_then(|n| n.find_child("TableElementList"))
-        {
+            .or_else(|| {
+                node.find_child("OptTypedTableElementList")
+                    .and_then(|n| n.find_child("TypedTableElementList"))
+            });
+
+        let mut lines = Vec::new();
+        if elem_list.is_none() {
+            // An empty `()` is still required before INHERITS or SERVER.
+            let mut cursor = node.walk();
+            if node.children(&mut cursor).any(|c| c.kind() == "(") {
+                header.push_str(" ()");
+            }
+            lines.push(header);
+        } else {
+            lines.push(format!("{header} ("));
+        }
+
+        // Column definitions (same as CREATE TABLE).
+        if let Some(elem_list) = elem_list {
             let indent = self.config.indent;
 
             // Inline comments trail the element they follow (see
@@ -1786,7 +1869,22 @@ impl<'a> Formatter<'a> {
             }
         }
 
-        lines.push(")".to_string());
+        if elem_list.is_some() {
+            lines.push(")".to_string());
+        }
+
+        // FOR VALUES ... / DEFAULT, the bound of a PARTITION OF table.
+        if let Some(bound) = node.find_child("PartitionBoundSpec") {
+            lines.push(self.render_clause_inline(bound));
+        }
+
+        // INHERITS (parent, ...).
+        if let Some(inh) = node.find_child("OptInherit") {
+            let text = self.render_clause_inline(inh);
+            if !text.is_empty() {
+                lines.push(text);
+            }
+        }
 
         // SERVER name.
         if let Some(server_name) = node.find_child("name") {
@@ -1875,9 +1973,18 @@ impl<'a> Formatter<'a> {
             return self.kw(self.text(node));
         }
         match kind {
-            "a_expr" | "b_expr" | "c_expr" => return self.format_expr(node),
+            "a_expr" | "b_expr" | "c_expr" | "func_expr_windowless" => {
+                return self.format_expr(node);
+            }
             "Typename" => return self.format_typename(node),
             "qualified_name" => return self.format_qualified_name(node),
+            // An identifier keeps the spelling it was written with. Many are
+            // unreserved keywords in the grammar -- a column named `data`
+            // parses as `ColId > unreserved_keyword > kw_data` -- and
+            // recursing would apply keyword casing to a name.
+            "ColId" | "ColLabel" | "attr_name" | "name" => {
+                return self.text(node).trim().to_string();
+            }
             _ => {}
         }
         let mut cursor = node.walk();
@@ -1942,12 +2049,19 @@ impl<'a> Formatter<'a> {
         parts.join(" ")
     }
 
-    fn format_qualified_name_from(&self, node: Node<'a>) -> String {
-        // insert_target wraps a qualified_name.
-        if let Some(qn) = node.find_child("qualified_name") {
-            return self.format_expr(qn);
+    /// The table an INSERT writes to, with its alias. ON CONFLICT and
+    /// RETURNING refer to the table by the alias once one is given, so
+    /// dropping it leaves them naming a table that no longer exists -- see
+    /// https://github.com/gmr/libpgfmt/issues/58.
+    fn format_insert_target(&self, node: Node<'a>) -> String {
+        let Some(qn) = node.find_child("qualified_name") else {
+            return self.format_expr(node);
+        };
+        let name = self.format_expr(qn);
+        match node.find_child("ColId") {
+            Some(alias) => format!("{name} {} {}", self.kw("AS"), self.format_expr(alias)),
+            None => name,
         }
-        self.format_expr(node)
     }
 
     fn find_name_in_create(&self, node: Node<'a>) -> String {
@@ -2077,146 +2191,11 @@ fn reindent_body(s: &str, indent: &str) -> String {
         .join("\n")
 }
 
-/// Collapse runs of whitespace to single spaces, but preserve whitespace
-/// inside single-quoted strings, double-quoted identifiers, and dollar-quoted
-/// strings so that literal content is not altered.
-/// Normalize whitespace, but keep the original line breaks when the statement
-/// contains a `--` line comment.
-///
-/// Collapsing newlines around a line comment folds everything after it into
-/// the comment, so a passed-through statement such as
-/// `EXECUTE PROCEDURE f(a, -- why\n b)` loses its tail and stops parsing.
-/// Each line is normalized on its own instead.
-pub(crate) fn normalize_whitespace_preserving_comments(s: &str) -> String {
-    if !has_line_comment(s) {
-        return normalize_whitespace(s);
-    }
-    s.lines()
-        .map(normalize_whitespace)
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Whether the text has a `--` line comment outside any string literal.
-fn has_line_comment(s: &str) -> bool {
-    let bytes: Vec<char> = s.chars().collect();
-    let mut i = 0;
-    let mut quote: Option<char> = None;
-    while i < bytes.len() {
-        let c = bytes[i];
-        match quote {
-            Some(q) => {
-                if c == q {
-                    quote = None;
-                }
-            }
-            None => {
-                if c == '\'' || c == '"' {
-                    quote = Some(c);
-                } else if c == '-' && i + 1 < bytes.len() && bytes[i + 1] == '-' {
-                    return true;
-                }
-            }
-        }
-        i += 1;
-    }
-    false
-}
-
+/// Collapse whitespace, keeping string constants, quoted identifiers and
+/// comments verbatim, and keeping the newlines that carry meaning: the one
+/// after a `--` comment, which would otherwise swallow the rest of the
+/// statement, and the one between two string constants, which PostgreSQL
+/// requires to join them. See [`lexical::collapse_whitespace`].
 pub(crate) fn normalize_whitespace(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let chars: Vec<char> = s.chars().collect();
-    let len = chars.len();
-    let mut i = 0;
-    let mut in_space_run = false;
-
-    while i < len {
-        let ch = chars[i];
-
-        // Single-quoted string.
-        if ch == '\'' {
-            in_space_run = false;
-            result.push(ch);
-            i += 1;
-            while i < len {
-                result.push(chars[i]);
-                if chars[i] == '\'' {
-                    i += 1;
-                    if i < len && chars[i] == '\'' {
-                        result.push(chars[i]);
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            continue;
-        }
-
-        // Double-quoted identifier.
-        if ch == '"' {
-            in_space_run = false;
-            result.push(ch);
-            i += 1;
-            while i < len {
-                result.push(chars[i]);
-                if chars[i] == '"' {
-                    i += 1;
-                    if i < len && chars[i] == '"' {
-                        result.push(chars[i]);
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            continue;
-        }
-
-        // Dollar-quoted string.
-        if ch == '$' {
-            let tag_start = i;
-            let mut tag_end = i + 1;
-            while tag_end < len && (chars[tag_end].is_ascii_alphanumeric() || chars[tag_end] == '_')
-            {
-                tag_end += 1;
-            }
-            if tag_end < len && chars[tag_end] == '$' {
-                in_space_run = false;
-                let tag: String = chars[tag_start..=tag_end].iter().collect();
-                result.push_str(&tag);
-                i = tag_end + 1;
-                while i < len {
-                    let remaining: String = chars[i..].iter().collect();
-                    if remaining.starts_with(&tag) {
-                        result.push_str(&tag);
-                        i += tag.len();
-                        break;
-                    }
-                    result.push(chars[i]);
-                    i += 1;
-                }
-                continue;
-            }
-        }
-
-        // Normal whitespace collapsing.
-        if ch.is_whitespace() {
-            if !in_space_run && !result.is_empty() {
-                result.push(' ');
-            }
-            in_space_run = true;
-            i += 1;
-        } else {
-            in_space_run = false;
-            result.push(ch);
-            i += 1;
-        }
-    }
-
-    result.trim().to_string()
+    lexical::collapse_whitespace(s)
 }

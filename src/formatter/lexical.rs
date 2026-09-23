@@ -16,6 +16,8 @@ pub(crate) enum Span {
     LineComment,
     /// A `/* ... */` comment.
     BlockComment,
+    /// A quoted identifier, `"..."`, whose spacing is part of the name.
+    Identifier,
 }
 
 /// The span starting at `chars[i]`, with the index just past its end.
@@ -25,6 +27,7 @@ pub(crate) enum Span {
 pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
     match chars.get(i)? {
         '\'' => Some((Span::Literal, quoted_end(chars, i + 1, false))),
+        '"' => Some((Span::Identifier, identifier_end(chars, i + 1))),
         'E' | 'e' if chars.get(i + 1) == Some(&'\'') && !continues_identifier(chars, i) => {
             Some((Span::Literal, quoted_end(chars, i + 2, true)))
         }
@@ -75,6 +78,87 @@ fn quoted_end(chars: &[char], mut i: usize, escapes: bool) -> usize {
     chars.len()
 }
 
+/// End of a quoted identifier whose body starts at `i`. A doubled quote is an
+/// escaped quote.
+fn identifier_end(chars: &[char], mut i: usize) -> usize {
+    while i < chars.len() {
+        match chars[i] {
+            '"' if chars.get(i + 1) == Some(&'"') => i += 2,
+            '"' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    chars.len()
+}
+
+/// Collapse whitespace runs to a single space and trim, with two exceptions:
+/// a run that contains a newline and sits between two string constants is
+/// kept as a newline, and so is the newline that terminates a `--` comment.
+/// String constants, quoted identifiers and comments are copied verbatim.
+///
+/// PostgreSQL concatenates two string constants only when a line break
+/// separates them; on one line the adjacency is a syntax error. Collapsing
+/// that newline turns `SELECT 'foo'\n'bar'` into invalid SQL. Collapsing the
+/// newline after a `--` comment is worse: the comment then swallows the rest
+/// of the statement.
+pub(crate) fn collapse_whitespace(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    let mut after_line_comment = false;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some((span, end)) = scan(&chars, i) {
+            out.extend(&chars[i..end]);
+            after_line_comment = span == Span::LineComment;
+            i = end;
+            continue;
+        }
+        if c.is_whitespace() {
+            let mut j = i;
+            let mut saw_newline = false;
+            while j < chars.len() && chars[j].is_whitespace() {
+                saw_newline |= chars[j] == '\n';
+                j += 1;
+            }
+            let between_literals =
+                saw_newline && out.ends_with('\'') && j < chars.len() && chars[j] == '\'';
+            if !out.is_empty() && j < chars.len() {
+                out.push(if between_literals || (saw_newline && after_line_comment) {
+                    '\n'
+                } else {
+                    ' '
+                });
+            }
+            after_line_comment = false;
+            i = j;
+            continue;
+        }
+        out.push(c);
+        after_line_comment = false;
+        i += 1;
+    }
+    out
+}
+
+/// Whether `text` ends inside a `--` comment, so that anything appended on
+/// the same line would be commented out.
+pub(crate) fn ends_in_line_comment(text: &str) -> bool {
+    let chars: Vec<char> = text.trim_end().chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if let Some((span, end)) = scan(&chars, i) {
+            if span == Span::LineComment && end >= chars.len() {
+                return true;
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 /// End of a dollar-quoted constant starting at `i`, or `None` when the `$` is
 /// something else — a positional parameter, say.
 fn dollar_end(chars: &[char], i: usize) -> Option<usize> {
@@ -106,6 +190,27 @@ mod tests {
     fn end_of(text: &str) -> Option<(Span, usize)> {
         let chars: Vec<char> = text.chars().collect();
         scan(&chars, 0)
+    }
+
+    #[test]
+    fn quoted_identifiers() {
+        assert_eq!(end_of("\"a  b\" x"), Some((Span::Identifier, 6)));
+        assert_eq!(end_of("\"a\"\"b\" x"), Some((Span::Identifier, 6)));
+    }
+
+    #[test]
+    fn collapse_keeps_meaningful_newlines() {
+        assert_eq!(collapse_whitespace("  a   b  "), "a b");
+        assert_eq!(collapse_whitespace("f(a, -- why\n  b)"), "f(a, -- why\nb)");
+        assert_eq!(collapse_whitespace("'foo'\n   'bar'"), "'foo'\n'bar'");
+        assert_eq!(collapse_whitespace("'a  b' \"c  d\""), "'a  b' \"c  d\"");
+    }
+
+    #[test]
+    fn line_comment_at_end() {
+        assert!(ends_in_line_comment("SELECT 1 -- why\n"));
+        assert!(!ends_in_line_comment("SELECT '--' AS x"));
+        assert!(!ends_in_line_comment("-- a\nSELECT 1"));
     }
 
     #[test]

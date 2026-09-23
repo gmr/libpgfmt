@@ -61,12 +61,13 @@ impl<'a> Formatter<'a> {
     /// canonical (single-line, single-spaced) deparser expressions; it folds
     /// the deparser's line breaks so the layout can be re-imposed.
     fn collapse_ws(&self, text: &str) -> String {
-        collapse_ws_preserving_continuations(text)
+        lexical::collapse_whitespace(text)
     }
 
     /// Like [`collapse_ws`] but keeps a single boundary space when the original
     /// began or ended with whitespace, so collapsed fragments concatenate with
-    /// correct spacing around a spliced-in subquery.
+    /// correct spacing around a spliced-in subquery. A trailing `--` comment
+    /// gets a newline instead, so it does not comment out the subquery.
     fn collapse_preserve_edges(&self, text: &str) -> String {
         if text.is_empty() {
             return String::new();
@@ -81,11 +82,14 @@ impl<'a> Formatter<'a> {
                 String::new()
             };
         }
-        format!(
-            "{}{core}{}",
-            if lead { " " } else { "" },
-            if trail { " " } else { "" }
-        )
+        let tail = if !trail {
+            ""
+        } else if lexical::ends_in_line_comment(&core) {
+            "\n"
+        } else {
+            " "
+        };
+        format!("{}{core}{tail}", if lead { " " } else { "" })
     }
 
     /// Render an expression that may embed sub-`SELECT`s. Parts outside a
@@ -181,8 +185,26 @@ impl<'a> Formatter<'a> {
             s.push('\n');
         }
 
-        // SELECT [DISTINCT] target, target, ... (CASE targets render as blocks).
-        s.push_str(&self.pgdump_targets(c, depth));
+        // A VALUES list takes the place of SELECT and its targets. Rendering
+        // targets instead produced `SELECT *`, which PostgreSQL rejects --
+        // see https://github.com/gmr/libpgfmt/issues/58.
+        if let Some(values) = c.values_clause {
+            s.push_str(&" ".repeat(STEP * depth + 1));
+            s.push_str(&self.collapse_ws(self.text(values)));
+        } else if let Some(branch) = c.parenthesized {
+            s.push_str(&" ".repeat(STEP * depth + 1));
+            s.push_str(&self.render_select_with_parens(branch, depth));
+        } else {
+            // SELECT [DISTINCT] target, ... (CASE targets render as blocks).
+            s.push_str(&self.pgdump_targets(c, depth));
+        }
+
+        if let Some(into) = c.into_clause {
+            s.push('\n');
+            s.push_str(&self.river_pad(4, depth));
+            s.push_str("INTO ");
+            s.push_str(&self.select_into_target(into));
+        }
 
         // FROM
         if let Some(from) = c.from {
@@ -221,6 +243,13 @@ impl<'a> Formatter<'a> {
             s.push_str(&self.river_pad(6, depth));
             s.push_str("HAVING ");
             s.push_str(&self.render_expr_text(expr, depth));
+        }
+
+        // WINDOW
+        if let Some(w) = c.window_clause {
+            s.push('\n');
+            s.push_str(&self.river_pad(6, depth));
+            s.push_str(&self.collapse_ws(self.text(w)));
         }
 
         // Set operation (UNION / INTERSECT / EXCEPT): keyword at column 1, then
@@ -269,6 +298,11 @@ impl<'a> Formatter<'a> {
             s.push('\n');
             s.push_str(&limit_lead);
             s.push_str(&self.collapse_ws(self.text(lim)));
+        }
+        if let Some(lock) = c.for_locking {
+            s.push('\n');
+            s.push_str(&limit_lead);
+            s.push_str(&self.collapse_ws(self.text(lock)));
         }
 
         s
@@ -444,12 +478,9 @@ impl<'a> Formatter<'a> {
         let ctes = flatten_list(list, "cte_list");
         let last = ctes.len().saturating_sub(1);
         for (i, cte) in ctes.iter().enumerate() {
-            let name = cte
-                .find_child("name")
-                .map(|n| self.collapse_ws(self.text(n)))
-                .unwrap_or_default();
-            s.push_str(&name);
-            s.push_str(" AS (");
+            let (header, trailer) = self.format_cte_header(*cte);
+            s.push_str(&header);
+            s.push('(');
             let body = cte
                 .find_child("PreparableStmt")
                 .and_then(|p| p.find_child("SelectStmt"))
@@ -470,6 +501,8 @@ impl<'a> Formatter<'a> {
             s.push('\n');
             s.push_str(&close);
             s.push(')');
+            // ruleutils puts SEARCH and CYCLE on the closing line.
+            s.push_str(&trailer.replace('\n', " "));
             if i != last {
                 s.push_str(", ");
             }
@@ -567,55 +600,4 @@ impl<'a> Formatter<'a> {
             behavior.clear();
         }
     }
-}
-
-/// Collapse whitespace runs to a single space, with two exceptions: a run that
-/// contains a newline and sits between two string constants is kept as a
-/// newline, and so is the newline that terminates a `--` comment.
-///
-/// PostgreSQL concatenates two string constants only when a line break
-/// separates them; on one line the adjacency is a syntax error. Collapsing
-/// that newline turns `SELECT 'foo'\n'bar'` into invalid SQL. Collapsing the
-/// newline after a `--` comment is worse: the comment then swallows the rest
-/// of the statement.
-fn collapse_ws_preserving_continuations(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut i = 0;
-    let mut after_line_comment = false;
-    while i < chars.len() {
-        let c = chars[i];
-        // String constants and comments are copied verbatim: their spacing is
-        // data in the one case and structure in the other.
-        if let Some((span, end)) = lexical::scan(&chars, i) {
-            out.extend(&chars[i..end]);
-            after_line_comment = span == lexical::Span::LineComment;
-            i = end;
-            continue;
-        }
-        if c.is_whitespace() {
-            let mut j = i;
-            let mut saw_newline = false;
-            while j < chars.len() && chars[j].is_whitespace() {
-                saw_newline |= chars[j] == '\n';
-                j += 1;
-            }
-            let between_literals =
-                saw_newline && out.ends_with('\'') && j < chars.len() && chars[j] == '\'';
-            if !out.is_empty() && j < chars.len() {
-                out.push(if between_literals || (saw_newline && after_line_comment) {
-                    '\n'
-                } else {
-                    ' '
-                });
-            }
-            after_line_comment = false;
-            i = j;
-            continue;
-        }
-        out.push(c);
-        after_line_comment = false;
-        i += 1;
-    }
-    out
 }

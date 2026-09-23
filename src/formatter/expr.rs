@@ -168,9 +168,10 @@ impl<'a> Formatter<'a> {
             "a_expr_prec" => self.format_a_expr_prec(node),
             "c_expr" => self.format_c_expr(node),
             "implicit_row" => self.format_implicit_row(node),
+            "explicit_row" => self.format_explicit_row(node),
             "columnref" => self.format_columnref(node),
             "AexprConst" => self.format_const(node),
-            "func_expr" | "func_application" => self.format_func(node),
+            "func_expr" | "func_expr_windowless" | "func_application" => self.format_func(node),
             "case_expr" => self.format_case_expr(node),
             "target_el" => self.format_target_el(node),
             "Typename" => self.format_typename(node),
@@ -185,7 +186,8 @@ impl<'a> Formatter<'a> {
             "ColId" => self.format_col_id(node),
             "ColLabel" => self.format_first_named_child(node),
             "qualified_name" | "any_name" => self.format_qualified_name(node),
-            "indirection" => self.format_indirection(node),
+            "indirection" | "opt_indirection" => self.format_indirection(node),
+            "set_target" | "insert_column_item" => self.format_column_target(node),
             "indirection_el" => self.format_indirection_el(node),
             "attr_name" => self.format_first_named_child(node),
             "relation_expr" => self.format_relation_expr(node),
@@ -392,7 +394,9 @@ impl<'a> Formatter<'a> {
                 let formatted = match child.kind() {
                     "columnref" => self.format_columnref(child),
                     "AexprConst" => self.format_const(child),
-                    "func_expr" | "func_application" => self.format_func(child),
+                    "func_expr" | "func_expr_windowless" | "func_application" => {
+                        self.format_func(child)
+                    }
                     "case_expr" => self.format_case_expr(child),
                     "select_with_parens" => {
                         let f = self.format_select_with_parens(child);
@@ -539,6 +543,24 @@ impl<'a> Formatter<'a> {
         self.text(node).to_string()
     }
 
+    /// A column an INSERT or UPDATE writes, plus any subscript or field it
+    /// writes into.
+    ///
+    /// `SET a[4] = 1` writes one element and `SET a = 1` writes the whole
+    /// column, so the indirection must survive -- see
+    /// https://github.com/gmr/libpgfmt/issues/58.
+    fn format_column_target(&self, node: Node<'a>) -> String {
+        let column = node
+            .find_child("ColId")
+            .map(|n| self.format_expr(n))
+            .unwrap_or_default();
+        let indirection = node
+            .find_child("opt_indirection")
+            .map(|n| self.format_indirection(n))
+            .unwrap_or_default();
+        format!("{column}{indirection}")
+    }
+
     fn format_indirection(&self, node: Node<'a>) -> String {
         let mut result = String::new();
         let mut cursor = node.walk();
@@ -649,7 +671,9 @@ impl<'a> Formatter<'a> {
 
     pub(crate) fn format_func(&self, node: Node<'a>) -> String {
         match node.kind() {
-            "func_expr" => {
+            // func_expr_windowless is the form a partition key or index
+            // expression uses: a func_expr that cannot carry OVER.
+            "func_expr" | "func_expr_windowless" => {
                 if let Some(app) = node.find_child("func_application") {
                     let mut result = self.format_func(app);
                     // Trailing clauses appear in grammar order:
@@ -682,6 +706,20 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// `ORDER BY a, b DESC` from a `sort_clause` or `opt_sort_clause`, on one
+    /// line, for use inside an aggregate call.
+    fn format_inline_sort_clause(&self, node: Node<'a>) -> String {
+        let sort = node.find_child("sort_clause").unwrap_or(node);
+        let Some(list) = sort.find_child("sortby_list") else {
+            return String::new();
+        };
+        let items: Vec<_> = flatten_list(list, "sortby_list")
+            .iter()
+            .map(|i| self.format_sortby(*i))
+            .collect();
+        format!("{} {}", self.kw_pair("ORDER", "BY"), items.join(", "))
+    }
+
     fn format_func_application(&self, node: Node<'a>) -> String {
         let name = node
             .find_child("func_name")
@@ -695,6 +733,9 @@ impl<'a> Formatter<'a> {
         let mut args = String::new();
         let mut has_star = false;
         let mut has_distinct = false;
+        let mut has_all = false;
+        let mut variadic = None;
+        let mut order_by = String::new();
         let mut over_clause = None;
 
         for child in &children {
@@ -712,6 +753,15 @@ impl<'a> Formatter<'a> {
                         args = formatted.join(", ");
                     }
                     "distinct_clause" | "kw_distinct" => has_distinct = true,
+                    "kw_all" => has_all = true,
+                    // `f(a, VARIADIC arr)`: the VARIADIC argument is a sibling
+                    // of the argument list, not part of it.
+                    "func_arg_expr" => variadic = Some(self.format_expr(*child)),
+                    // An aggregate's ORDER BY decides the order of the result
+                    // of string_agg, array_agg and the like.
+                    "opt_sort_clause" | "sort_clause" => {
+                        order_by = self.format_inline_sort_clause(*child);
+                    }
                     "over_clause" => over_clause = Some(*child),
                     "func_name" => {} // already handled
                     _ => {}
@@ -726,13 +776,26 @@ impl<'a> Formatter<'a> {
         } else {
             name
         };
-        let inner = if has_star {
+        if let Some(variadic) = variadic {
+            let variadic = format!("{} {variadic}", self.kw("VARIADIC"));
+            args = if args.is_empty() {
+                variadic
+            } else {
+                format!("{args}, {variadic}")
+            };
+        }
+        let mut inner = if has_star {
             "*".to_string()
         } else if has_distinct {
             format!("{} {args}", self.kw("DISTINCT"))
+        } else if has_all {
+            format!("{} {args}", self.kw("ALL"))
         } else {
             args
         };
+        if !order_by.is_empty() {
+            inner = format!("{inner} {order_by}");
+        }
 
         // ANY, ALL, SOME are special SQL constructs that conventionally
         // have a space before the opening paren.
@@ -996,6 +1059,11 @@ impl<'a> Formatter<'a> {
                         parts.push(self.kw("LAST"));
                     }
                 }
+                // `ORDER BY a USING ~<~` sorts by that operator; without it
+                // the sort falls back to the type's default order -- see
+                // https://github.com/gmr/libpgfmt/issues/58.
+                "kw_using" => parts.push(self.kw("USING")),
+                "qual_all_Op" => parts.push(self.text(child).trim().to_string()),
                 _ => {}
             }
         }
@@ -1195,7 +1263,7 @@ impl<'a> Formatter<'a> {
         let mut parts = Vec::new();
         let mut cursor = node.walk();
         let mut has_setof = false;
-        let mut has_array = false;
+        let mut array_bounds = String::new();
         for child in node.children(&mut cursor) {
             if child.is_named() {
                 match child.kind() {
@@ -1203,7 +1271,12 @@ impl<'a> Formatter<'a> {
                     "kw_setof" => {
                         has_setof = true;
                     }
-                    "opt_array_bounds" => has_array = true,
+                    // Keep the bounds as written: `int[3][3]`, not `int[]`.
+                    // PostgreSQL does not enforce them, but they are the
+                    // author's documentation of the shape.
+                    "opt_array_bounds" => {
+                        array_bounds = self.text(child).split_whitespace().collect();
+                    }
                     _ => parts.push(self.format_expr(child)),
                 }
             }
@@ -1214,9 +1287,7 @@ impl<'a> Formatter<'a> {
             result.push(' ');
         }
         result.push_str(&parts.join(" "));
-        if has_array {
-            result.push_str("[]");
-        }
+        result.push_str(&array_bounds);
         result
     }
 
@@ -1224,12 +1295,37 @@ impl<'a> Formatter<'a> {
         let mut cursor = node.walk();
         if let Some(child) = node.named_children(&mut cursor).next() {
             return match child.kind() {
-                "Numeric" | "GenericType" | "Bit" | "Character" | "ConstDatetime"
-                | "ConstInterval" => self.format_typename_inner(child),
+                "ConstInterval" => self.format_interval_type(node, child),
+                "Numeric" | "GenericType" | "Bit" | "Character" | "ConstDatetime" => {
+                    self.format_typename_inner(child)
+                }
                 _ => self.format_expr(child),
             };
         }
         self.text(node).to_string()
+    }
+
+    /// An INTERVAL type with its precision and field qualifier.
+    ///
+    /// Both are siblings of `ConstInterval`, not children of it, and both
+    /// change the type: `INTERVAL HOUR TO MINUTE` discards seconds and
+    /// `INTERVAL(3)` rounds to milliseconds -- see
+    /// https://github.com/gmr/libpgfmt/issues/58.
+    fn format_interval_type(&self, node: Node<'a>, interval: Node<'a>) -> String {
+        let mut out = self.format_typename_inner(interval);
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor).skip(1) {
+            match child.kind() {
+                "Iconst" => out.push_str(&format!("({})", self.text(child).trim())),
+                "opt_interval" => {
+                    // `SECOND(2)`: the precision belongs to the field.
+                    out.push(' ');
+                    out.push_str(&self.render_clause_inline(child).replace(" (", "("));
+                }
+                _ => {}
+            }
+        }
+        out
     }
 
     /// Flatten the wrapper nodes the grammar inserts for character/bit types
@@ -1557,6 +1653,21 @@ impl<'a> Formatter<'a> {
         format!("({})", items.join(", "))
     }
 
+    /// `ROW(a, b)`. The generic walk rendered the keyword and dropped every
+    /// field -- see https://github.com/gmr/libpgfmt/issues/58.
+    fn format_explicit_row(&self, node: Node<'a>) -> String {
+        let fields: Vec<_> = node
+            .find_child("expr_list")
+            .map(|list| {
+                flatten_list(list, "expr_list")
+                    .iter()
+                    .map(|e| self.format_expr(*e))
+                    .collect()
+            })
+            .unwrap_or_default();
+        format!("{}({})", self.kw("ROW"), fields.join(", "))
+    }
+
     /// Format a table reference (for FROM clause), returning the table name with alias.
     pub(crate) fn format_table_ref(&self, node: Node<'a>) -> String {
         let mut parts = Vec::new();
@@ -1571,6 +1682,16 @@ impl<'a> Formatter<'a> {
                 // TABLESAMPLE method(args) [REPEATABLE (n)]: flat keyword and
                 // punctuation, which format_expr reduced to a bare TABLESAMPLE.
                 "tablesample_clause" => parts.push(self.render_clause_inline(child)),
+                // A function in FROM, with WITH ORDINALITY, or ROWS FROM (...).
+                // format_expr kept only the call, or for ROWS FROM only `ROWS`
+                // -- see https://github.com/gmr/libpgfmt/issues/58.
+                "func_table" => parts.push(self.render_clause_inline(child)),
+                // JSON_TABLE(...): format_expr kept only the keyword.
+                "json_table" => {
+                    let kw = self.kw("JSON_TABLE");
+                    let text = self.render_clause_inline(child);
+                    parts.push(text.replacen(&format!("{kw} ("), &format!("{kw}("), 1));
+                }
                 _ => parts.push(self.format_expr(child)),
             }
         }

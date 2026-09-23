@@ -167,53 +167,22 @@ pub fn format_plpgsql(code: &str, style: Style) -> Result<String, FormatError> {
 /// Check whether the parse tree has a structural error that would prevent
 /// meaningful formatting.
 ///
-/// The tree-sitter-postgres grammar has known limitations that produce ERROR
-/// nodes for valid SQL (e.g., `IS NOT NULL AND`, parenthesized boolean
-/// expressions, dollar-quoted function bodies). We only reject input when
-/// the parser couldn't produce any valid statement structure at all.
+/// Whether the parse holds any ERROR or MISSING node, in which case the input
+/// is rejected rather than formatted.
+///
+/// Every formatter renders the node kinds it knows, so the text of an ERROR
+/// node is never emitted. Tolerating one -- even a short one nested inside a
+/// statement -- meant silently dropping it: `LOWER(?)` formatted to `LOWER()`.
+/// Across the 1,286 statements of the PostgreSQL documentation corpus, the
+/// only inputs with an ERROR node are ones that are not PostgreSQL (`?` and
+/// `@extschema@` placeholders), so rejecting them costs nothing valid. See
+/// https://github.com/gmr/libpgfmt/issues/58.
 fn has_structural_error(root: &tree_sitter::Node) -> bool {
-    // If the parser produced at least one valid toplevel_stmt, the errors
-    // are grammar limitations (expression-level conflicts, dollar-quoted
-    // bodies, etc.) — not fundamentally broken SQL. Format what we can.
     let mut cursor = root.walk();
     let has_valid_stmt = root
         .named_children(&mut cursor)
         .any(|c| c.kind() == "toplevel_stmt");
-    if !has_valid_stmt {
-        // No valid statements at all — this is genuinely broken input.
-        return true;
-    }
-    // Junk outside every statement — a stray leading, trailing, or
-    // interleaved token — parses as an ERROR node directly under the root,
-    // as a sibling of the statements. Its text belongs to no statement, so
-    // nothing will ever render it and formatting would silently discard it.
-    // Reject regardless of size: the size threshold below only makes sense
-    // for errors nested inside a statement, whose text is still emitted.
-    let mut cursor = root.walk();
-    if root
-        .children(&mut cursor)
-        .any(|c| c.is_error() || c.is_missing())
-    {
-        return true;
-    }
-    // At least one statement parsed, but a sibling statement may still be
-    // broken (tree-sitter emits an ERROR/MISSING node rather than a
-    // toplevel_stmt for it). A MISSING node or a substantial ERROR node
-    // signals a genuinely unparseable statement that must not be silently
-    // dropped.
-    has_significant_error(root)
-}
-
-/// Recursively check for a MISSING node or a non-trivial ERROR node nested
-/// inside a statement. Short ERROR leaves are tolerated: their text is still
-/// rendered as part of the surrounding statement, so nothing is lost.
-fn has_significant_error(node: &tree_sitter::Node) -> bool {
-    if node.is_missing() || (node.is_error() && node.byte_range().len() >= 5) {
-        return true;
-    }
-    let mut cursor = node.walk();
-    node.children(&mut cursor)
-        .any(|child| has_significant_error(&child))
+    !has_valid_stmt || root.has_error()
 }
 
 fn find_error_message(node: &tree_sitter::Node, source: &str) -> String {

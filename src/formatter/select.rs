@@ -18,6 +18,12 @@ pub(crate) struct SelectClauses<'a> {
     pub limit_clause: Option<Node<'a>>,
     pub offset_clause: Option<Node<'a>>,
     pub with_clause: Option<Node<'a>>,
+    /// `SELECT ... INTO target`, which creates a table (or, in PL/pgSQL,
+    /// assigns to variables) instead of returning rows.
+    pub into_clause: Option<Node<'a>>,
+    /// A branch of a set operation written in parentheses, `(SELECT ...)`,
+    /// which is rendered as a unit in place of a SELECT list.
+    pub parenthesized: Option<Node<'a>>,
     /// WINDOW clause (named window definitions).
     pub window_clause: Option<Node<'a>>,
     /// FOR UPDATE / FOR SHARE (row-level locking).
@@ -54,9 +60,6 @@ impl<'a> Formatter<'a> {
         min_river_width: usize,
     ) -> String {
         let clauses = self.collect_select_clauses(node);
-        if clauses.values_clause.is_some() {
-            return self.format_values_only(&clauses);
-        }
         if self.config.river {
             self.format_select_river_with_min_width(&clauses, min_river_width)
         } else {
@@ -77,6 +80,8 @@ impl<'a> Formatter<'a> {
             limit_clause: None,
             offset_clause: None,
             with_clause: None,
+            into_clause: None,
+            parenthesized: None,
             window_clause: None,
             for_locking: None,
             set_op: None,
@@ -109,6 +114,7 @@ impl<'a> Formatter<'a> {
                         clauses.targets = flatten_list(tl, "target_list");
                     }
                 }
+                "into_clause" => clauses.into_clause = Some(*child),
                 "from_clause" => clauses.from = Some(*child),
                 "where_clause" => clauses.where_clause = Some(*child),
                 "group_clause" => clauses.group_clause = Some(*child),
@@ -124,6 +130,13 @@ impl<'a> Formatter<'a> {
                 }
                 "limit_clause" => {
                     self.collect_limit_clauses(*child, clauses);
+                }
+                // LIMIT written after the locking clause (`FOR UPDATE LIMIT
+                // 10`). PostgreSQL accepts either order with one meaning.
+                "opt_select_limit" => {
+                    if let Some(limit) = child.find_child("select_limit") {
+                        self.collect_limit_clauses(limit, clauses);
+                    }
                 }
                 "offset_clause" => clauses.offset_clause = Some(*child),
                 "window_clause" => clauses.window_clause = Some(*child),
@@ -155,11 +168,15 @@ impl<'a> Formatter<'a> {
                         }
                     }
                     if let Some(right) = right_clause {
-                        clauses.set_op = Some(SetOp {
+                        let op = SetOp {
                             keyword,
                             quantifier,
                             right,
                             right_clauses: None,
+                        };
+                        clauses.set_op = Some(match clauses.set_op.take() {
+                            Some(chain) => self.append_set_op(chain, op),
+                            None => op,
                         });
                     } else {
                         // ERROR recovery: the right side tokens are loose children
@@ -176,6 +193,8 @@ impl<'a> Formatter<'a> {
                             limit_clause: None,
                             offset_clause: None,
                             with_clause: None,
+                            into_clause: None,
+                            parenthesized: None,
                             window_clause: None,
                             for_locking: None,
                             set_op: None,
@@ -216,9 +235,36 @@ impl<'a> Formatter<'a> {
                     }
                 }
                 "values_clause" => clauses.values_clause = Some(*child),
+                // `(SELECT 1) UNION SELECT 2`: nothing inside the parentheses
+                // is a clause of this level, and collecting nothing rendered
+                // the branch as `SELECT *` -- see
+                // https://github.com/gmr/libpgfmt/issues/60.
+                "select_with_parens" => clauses.parenthesized = Some(*child),
                 _ => {}
             }
         }
+    }
+
+    /// Add `op` after the last branch of `chain`.
+    ///
+    /// `A UNION B UNION C` parses left-nested, `((A UNION B) UNION C)`, so the
+    /// recursion into the left side records `UNION B` before this level sees
+    /// `UNION C`. Assigning the second over the first dropped B -- see
+    /// https://github.com/gmr/libpgfmt/issues/60. Branches are rendered as a
+    /// flat sequence in source order, and PostgreSQL applies the same
+    /// precedence when it parses that sequence, so hanging `op` off the last
+    /// branch keeps the meaning.
+    fn append_set_op(&self, mut chain: SetOp<'a>, op: SetOp<'a>) -> SetOp<'a> {
+        let mut last = match chain.right_clauses.take() {
+            Some(clauses) => clauses,
+            None => Box::new(self.collect_select_clauses(chain.right)),
+        };
+        last.set_op = Some(match last.set_op.take() {
+            Some(inner) => self.append_set_op(inner, op),
+            None => op,
+        });
+        chain.right_clauses = Some(last);
+        chain
     }
 
     fn collect_limit_clauses(&self, node: Node<'a>, clauses: &mut SelectClauses<'a>) {
@@ -252,13 +298,6 @@ impl<'a> Formatter<'a> {
             if child.kind() == "kw_distinct" {
                 return self.kw("DISTINCT");
             }
-        }
-        String::new()
-    }
-
-    fn format_values_only(&self, clauses: &SelectClauses<'a>) -> String {
-        if let Some(vc) = clauses.values_clause {
-            return self.format_values_clause(vc);
         }
         String::new()
     }
@@ -321,13 +360,30 @@ impl<'a> Formatter<'a> {
         } else {
             None
         };
-        self.append_river_targets_with_prefix(
-            &select_kw,
-            distinct_prefix.as_deref(),
-            &clauses.targets,
-            river_width,
-            &mut lines,
-        );
+        // A VALUES list takes the place of SELECT and its targets. It used to
+        // be returned on its own, dropping any WITH, set operation, ORDER BY
+        // or LIMIT around it -- see https://github.com/gmr/libpgfmt/issues/58.
+        if let Some(values) = clauses.values_clause {
+            lines.push(self.format_values_clause(values));
+        } else if let Some(branch) = clauses.parenthesized {
+            lines.push(self.format_select_with_parens(branch));
+        } else {
+            self.append_river_targets_with_prefix(
+                &select_kw,
+                distinct_prefix.as_deref(),
+                &clauses.targets,
+                river_width,
+                &mut lines,
+            );
+        }
+
+        if let Some(into) = clauses.into_clause {
+            lines.push(self.river_line(
+                &self.kw("INTO"),
+                &self.select_into_target(into),
+                river_width,
+            ));
+        }
 
         // FROM clause with JOINs.
         if let Some(from) = clauses.from {
@@ -355,24 +411,29 @@ impl<'a> Formatter<'a> {
             lines.push(self.river_line(&self.kw("WINDOW"), &content, river_width));
         }
 
-        // ORDER BY clause.
+        // ORDER BY, LIMIT, OFFSET and FOR UPDATE. With a set operation these
+        // apply to the whole of it -- a branch can only have its own inside
+        // parentheses -- so they are written after the last branch. Writing
+        // them after the first gave `SELECT 1 ORDER BY 1 UNION SELECT 2`,
+        // which PostgreSQL rejects -- see
+        // https://github.com/gmr/libpgfmt/issues/60.
+        let mut tail = Vec::new();
         if let Some(sort) = clauses.sort_clause {
-            self.format_order_by_river(sort, river_width, &mut lines);
+            self.format_order_by_river(sort, river_width, &mut tail);
         }
-
-        // LIMIT / OFFSET.
         if let Some(limit) = clauses.limit_clause {
-            self.format_limit_river(limit, river_width, &mut lines);
+            self.format_limit_river(limit, river_width, &mut tail);
         }
         if let Some(offset) = clauses.offset_clause {
-            self.format_offset_river(offset, river_width, &mut lines);
+            self.format_offset_river(offset, river_width, &mut tail);
         }
-
-        // FOR UPDATE / FOR SHARE locking.
         if let Some(for_locking) = clauses.for_locking {
             for content in self.format_for_locking_items(for_locking) {
-                lines.push(self.river_line(&self.kw("FOR"), &content, river_width));
+                tail.push(self.river_line(&self.kw("FOR"), &content, river_width));
             }
+        }
+        if clauses.set_op.is_none() {
+            lines.append(&mut tail);
         }
 
         let mut result = lines.join("\n");
@@ -393,6 +454,10 @@ impl<'a> Formatter<'a> {
                 let right_clauses = self.collect_select_clauses(set_op.right);
                 result.push_str(&self.format_select_river(&right_clauses));
             }
+            if !tail.is_empty() {
+                result.push('\n');
+                result.push_str(&tail.join("\n"));
+            }
         }
 
         result
@@ -406,6 +471,9 @@ impl<'a> Formatter<'a> {
         // DISTINCT is part of the content, not the river keyword.
         keywords.push(self.kw("SELECT"));
 
+        if clauses.into_clause.is_some() {
+            keywords.push(self.kw("INTO"));
+        }
         if clauses.from.is_some() {
             keywords.push(self.kw("FROM"));
             // Collect JOIN keywords if they participate in the river.
@@ -827,8 +895,39 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// What a `SELECT ... INTO` writes to: `films_recent`, `TEMP t`, ...
+    pub(crate) fn select_into_target(&self, node: Node<'a>) -> String {
+        let mut cursor = node.walk();
+        node.named_children(&mut cursor)
+            .filter(|c| c.kind() != "kw_into")
+            .map(|c| self.render_clause_inline(c))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     pub(crate) fn format_where_river(&self, node: Node<'a>, width: usize, lines: &mut Vec<String>) {
+        if let Some(cursor) = self.where_current_of(node) {
+            lines.push(self.river_line(&self.kw("WHERE"), &cursor, width));
+            return;
+        }
         self.format_condition_clause_river(node, "WHERE", width, lines);
+    }
+
+    /// `CURRENT OF cursor` when `node` is a positioned WHERE clause.
+    ///
+    /// It holds no expression, so the condition renderers find nothing in it,
+    /// and dropping it turns an UPDATE or DELETE of one row into one of every
+    /// row -- see https://github.com/gmr/libpgfmt/issues/58.
+    pub(crate) fn where_current_of(&self, node: Node<'a>) -> Option<String> {
+        if !node.has_child("kw_current") {
+            return None;
+        }
+        let cursor = node.find_child("cursor_name")?;
+        Some(format!(
+            "{} {}",
+            self.kw_pair("CURRENT", "OF"),
+            self.text(cursor).trim()
+        ))
     }
 
     fn format_having_river(&self, node: Node<'a>, width: usize, lines: &mut Vec<String>) {
@@ -1289,7 +1388,11 @@ impl<'a> Formatter<'a> {
             self.kw("SELECT")
         };
 
-        if clauses.targets.len() <= 1 {
+        if let Some(values) = clauses.values_clause {
+            lines.push(self.format_values_clause(values));
+        } else if let Some(branch) = clauses.parenthesized {
+            lines.push(self.format_select_with_parens(branch));
+        } else if clauses.targets.len() <= 1 {
             let target_text = clauses
                 .targets
                 .first()
@@ -1306,6 +1409,14 @@ impl<'a> Formatter<'a> {
                     lines.push(format!("{indent}{formatted}"));
                 }
             }
+        }
+
+        if let Some(into) = clauses.into_clause {
+            lines.push(format!(
+                "{} {}",
+                self.kw("INTO"),
+                self.select_into_target(into)
+            ));
         }
 
         // FROM clause.
@@ -1349,6 +1460,10 @@ impl<'a> Formatter<'a> {
             lines.push(format!("{} {content}", self.kw("WINDOW")));
         }
 
+        // ORDER BY through FOR UPDATE apply to the whole set operation when
+        // there is one, so they are moved after its last branch below.
+        let tail_start = lines.len();
+
         // ORDER BY.
         if let Some(sort) = clauses.sort_clause {
             if blank {
@@ -1391,6 +1506,11 @@ impl<'a> Formatter<'a> {
             }
         }
 
+        let tail = if clauses.set_op.is_some() {
+            lines.split_off(tail_start)
+        } else {
+            Vec::new()
+        };
         let mut result = lines.join("\n");
 
         // Set operations.
@@ -1412,6 +1532,10 @@ impl<'a> Formatter<'a> {
             } else {
                 let right_clauses = self.collect_select_clauses(set_op.right);
                 result.push_str(&self.format_select_left_aligned(&right_clauses));
+            }
+            if !tail.is_empty() {
+                result.push('\n');
+                result.push_str(&tail.join("\n"));
             }
         }
 
@@ -1584,6 +1708,10 @@ impl<'a> Formatter<'a> {
     }
 
     pub(crate) fn format_where_left_aligned(&self, node: Node<'a>, lines: &mut Vec<String>) {
+        if let Some(cursor) = self.where_current_of(node) {
+            lines.push(format!("{} {cursor}", self.kw("WHERE")));
+            return;
+        }
         let indent = self.config.indent;
         if let Some(expr) = node.find_child_any(&["a_expr", "c_expr"]) {
             let conditions = self.split_top_level_conditions(expr);
@@ -1714,14 +1842,44 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_cte_river(&self, node: Node<'a>, river_width: usize) -> String {
+        let body = self.format_cte_body(node, river_width);
+        let (header, trailer) = self.format_cte_header(node);
+
+        format!("{header}(\n{body}\n){trailer}")
+    }
+
+    /// The text before a CTE's body and the text after it.
+    ///
+    /// The header carries the name, the column list a recursive CTE needs to
+    /// declare, and the MATERIALIZED hint; the trailer carries the SEARCH and
+    /// CYCLE clauses. All of them change what the CTE means, so none may be
+    /// dropped -- see https://github.com/gmr/libpgfmt/issues/58.
+    pub(crate) fn format_cte_header(&self, node: Node<'a>) -> (String, String) {
         let name = node
             .find_child("name")
             .map(|n| self.format_expr(n))
             .unwrap_or_default();
+        let columns = node
+            .find_child("opt_name_list")
+            .map(|n| self.render_clause_inline(n))
+            .unwrap_or_default();
+        let materialized = node
+            .find_child("opt_materialized")
+            .map(|n| format!("{} ", self.render_clause_inline(n)))
+            .unwrap_or_default();
 
-        let body = self.format_cte_body(node, river_width);
+        let mut trailer = String::new();
+        for kind in ["opt_search_clause", "opt_cycle_clause"] {
+            if let Some(clause) = node.find_child(kind) {
+                trailer.push('\n');
+                trailer.push_str(&self.render_clause_inline(clause));
+            }
+        }
 
-        format!("{name} {} (\n{body}\n)", self.kw("AS"))
+        (
+            format!("{name}{columns} {} {materialized}", self.kw("AS")),
+            trailer,
+        )
     }
 
     /// Extract and format the body of a CTE, handling SELECT, INSERT, UPDATE,
@@ -1765,11 +1923,9 @@ impl<'a> Formatter<'a> {
                 lines.push(format!("{with_kw}\n"));
             }
 
+            let mut prev_trailer = String::new();
             for (i, cte) in ctes.iter().enumerate() {
-                let name = cte
-                    .find_child("name")
-                    .map(|n| self.format_expr(n))
-                    .unwrap_or_default();
+                let (header, trailer) = self.format_cte_header(*cte);
 
                 let body = self.format_cte_body(*cte, 0);
 
@@ -1786,9 +1942,11 @@ impl<'a> Formatter<'a> {
                     .join("\n");
 
                 let cte_prefix = if self.config.compact_ctes && i > 0 {
-                    format!("), {name} {} (", self.kw("AS"))
+                    // Compact CTEs close each other: this `)` belongs to the
+                    // previous CTE, so its SEARCH/CYCLE goes here.
+                    format!("){prev_trailer}, {header}(")
                 } else {
-                    let as_line = format!("{name} {} (", self.kw("AS"));
+                    let as_line = format!("{header}(");
                     if i == 0 && !self.config.blank_lines_between_clauses {
                         format!("{with_kw} {as_line}")
                     } else {
@@ -1817,15 +1975,16 @@ impl<'a> Formatter<'a> {
                 if !self.config.compact_ctes {
                     let is_last = i == ctes.len() - 1;
                     lines.push(if is_last {
-                        ")".to_string()
+                        format!("){trailer}")
                     } else {
-                        "),".to_string()
+                        format!("){trailer},")
                     });
                 }
+                prev_trailer = trailer;
             }
 
             if self.config.compact_ctes {
-                lines.push(")".to_string());
+                lines.push(format!("){prev_trailer}"));
             }
         }
         lines.join("\n")
@@ -1928,7 +2087,7 @@ fn newlines_inside_literal(content: &str) -> Vec<bool> {
     let mut i = 0;
     while i < chars.len() {
         if let Some((span, end)) = lexical::scan(&chars, i) {
-            let inside = span == lexical::Span::Literal;
+            let inside = matches!(span, lexical::Span::Literal | lexical::Span::Identifier);
             out.extend(chars[i..end].iter().filter(|c| **c == '\n').map(|_| inside));
             i = end;
             continue;

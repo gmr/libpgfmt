@@ -66,3 +66,7 @@ gen-pgdump-fixtures:
 # Clean build artifacts
 clean:
     cargo clean
+
+# Regenerate the PostgreSQL documentation corpus (needs a PostgreSQL checkout)
+gen-doc-corpus pgsrc="../postgres":
+    python3 scripts/extract_doc_corpus.py {{pgsrc}}/doc/src/sgml tests/fixtures/corpus/postgres_doc.sql

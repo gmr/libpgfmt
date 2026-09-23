@@ -752,3 +752,423 @@ fn nested_recursive_cte_river_width() {
     }
     format(&result, Style::River).unwrap();
 }
+
+// A column target keeps its subscript or field. `SET a[4] = 1` writes one
+// element and `SET a = 1` writes the whole column. INSERT and MERGE INSERT
+// column lists use the same node, and the documentation corpus has no example
+// of them, so they are covered here.
+#[test]
+fn column_target_indirection_preserved() {
+    for sql in [
+        "UPDATE t SET a[4] = 1, b[1:2] = '{1,2}', h['c'] = '3', c.d = 1",
+        "INSERT INTO t (a[1], c.d) VALUES (1, 2)",
+        "MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT (a[1], c.d) VALUES (1, 2)",
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap();
+            for target in ["a[", "c.d"] {
+                assert!(
+                    result.contains(target),
+                    "\nStyle: {style}\nInput: {sql}\nmissing {target:?} in:\n{result}"
+                );
+            }
+        }
+    }
+}
+
+// Interval precision and field qualifiers change the type, so they must
+// survive in column definitions and casts alike.
+#[test]
+fn interval_qualifiers_and_array_bounds_preserved() {
+    let result = format(
+        "CREATE TABLE t (a interval hour to minute, b interval(3), c interval second(2), d int[3][3])",
+        Style::River,
+    )
+    .unwrap();
+    for piece in [
+        "INTERVAL HOUR TO MINUTE",
+        "INTERVAL(3)",
+        "INTERVAL SECOND(2)",
+        "INTEGER[3][3]",
+    ] {
+        assert!(result.contains(piece), "missing {piece:?}\nGot:\n{result}");
+    }
+    let cast = format("SELECT x::interval(3)", Style::River).unwrap();
+    assert!(cast.contains("INTERVAL(3)"), "Got:\n{cast}");
+}
+
+// Dropping `WHERE CURRENT OF` turns a write to the row under a cursor into a
+// write to every row in the table.
+#[test]
+fn where_current_of_preserved() {
+    for sql in [
+        "UPDATE films SET kind = 'Dramatic' WHERE CURRENT OF c_films",
+        "DELETE FROM tasks WHERE CURRENT OF c_tasks",
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap();
+            assert!(
+                result.contains("WHERE CURRENT OF c_") || result.contains("where current of c_"),
+                "\nStyle: {style}\nInput: {sql}\nGot:\n{result}"
+            );
+        }
+    }
+}
+
+// pg_dump style rendered every VALUES list as `SELECT *`, which tree-sitter
+// accepts and PostgreSQL rejects, and dropped WINDOW and FOR UPDATE.
+#[test]
+fn pgdump_keeps_values_window_and_locking() {
+    for (sql, piece) in [
+        (
+            "VALUES (1, 'one'), (2, 'two')",
+            "VALUES (1, 'one'), (2, 'two')",
+        ),
+        (
+            "SELECT * FROM t WHERE ip IN (VALUES (1), (2))",
+            "VALUES (1), (2)",
+        ),
+        (
+            "SELECT sum(x) OVER w FROM t WINDOW w AS (ORDER BY x)",
+            "WINDOW w AS (ORDER BY x)",
+        ),
+        (
+            "SELECT * FROM t FOR UPDATE SKIP LOCKED",
+            "FOR UPDATE SKIP LOCKED",
+        ),
+    ] {
+        let result = format(sql, Style::PgDump).unwrap();
+        assert!(result.contains(piece), "\nInput: {sql}\nGot:\n{result}");
+        assert!(
+            !result.contains("SELECT *)"),
+            "\nInput: {sql}\nGot:\n{result}"
+        );
+    }
+}
+
+// An aggregate's ORDER BY decides its result, and a VARIADIC argument is a
+// sibling of the argument list rather than part of it.
+#[test]
+fn aggregate_order_by_and_variadic_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "SELECT string_agg(a, ',' ORDER BY a), array_agg(DISTINCT v ORDER BY v DESC), concat_ws(',', VARIADIC arr) FROM t",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        for piece in [
+            "',' ORDER BY A)",
+            "DISTINCT V ORDER BY V DESC)",
+            "',', VARIADIC ARR)",
+        ] {
+            assert!(
+                result.contains(piece),
+                "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+            );
+        }
+    }
+}
+
+// View and materialized view headers carry options that change behaviour:
+// security_barrier, CHECK OPTION, and the storage and population clauses.
+#[test]
+fn view_options_preserved() {
+    for (sql, pieces) in [
+        (
+            "CREATE VIEW v (a, b) AS SELECT 1, 2",
+            &["VIEW V (A, B)"][..],
+        ),
+        (
+            "CREATE OR REPLACE RECURSIVE VIEW v (a) WITH (security_barrier) AS SELECT 1 WITH LOCAL CHECK OPTION",
+            &[
+                "RECURSIVE VIEW v (a)",
+                "WITH (security_barrier)",
+                "WITH LOCAL CHECK OPTION",
+            ][..],
+        ),
+        (
+            "CREATE MATERIALIZED VIEW IF NOT EXISTS mv (x) USING heap WITH (fillfactor = 70) TABLESPACE fast AS SELECT 1 with no data",
+            &[
+                "IF NOT EXISTS mv (x) USING heap WITH (fillfactor = 70) TABLESPACE fast",
+                "WITH NO DATA",
+            ][..],
+        ),
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap().to_uppercase();
+            for piece in pieces {
+                assert!(
+                    result.contains(&piece.to_uppercase()),
+                    "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+                );
+            }
+        }
+    }
+}
+
+// https://github.com/gmr/libpgfmt/issues/60: every branch of a set operation
+// survives, a parenthesized branch keeps its contents, and a trailing ORDER BY
+// or LIMIT stays after the last branch, where it applies to the whole.
+#[test]
+fn set_operation_branches_preserved() {
+    let cases: &[(&str, &[&str])] = &[
+        (
+            "SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3",
+            &["SELECT 1", "SELECT 2", "SELECT 3"],
+        ),
+        (
+            "SELECT 1 UNION SELECT 2 EXCEPT SELECT 3 INTERSECT SELECT 4",
+            &["SELECT 1", "SELECT 2", "SELECT 3", "SELECT 4"],
+        ),
+        ("(SELECT 1) UNION SELECT 2", &["SELECT 1", "SELECT 2"]),
+    ];
+    for &style in Style::ALL {
+        for (sql, pieces) in cases {
+            let result = format(sql, style).unwrap().to_uppercase();
+            for piece in *pieces {
+                assert!(
+                    result.contains(piece),
+                    "\nStyle: {style}\nInput: {sql}\nmissing {piece:?} in:\n{result}"
+                );
+            }
+        }
+        let result = format("SELECT 1 UNION SELECT 2 ORDER BY 1 LIMIT 5", style)
+            .unwrap()
+            .to_uppercase();
+        let (union, order) = (
+            result.find("UNION").unwrap(),
+            result.find("ORDER BY").unwrap(),
+        );
+        assert!(
+            union < order,
+            "\nStyle: {style}\nORDER BY precedes UNION in:\n{result}"
+        );
+    }
+}
+
+// A VALUES list was returned on its own, dropping everything around it.
+#[test]
+fn values_keeps_surrounding_clauses() {
+    for &style in Style::ALL {
+        for (sql, piece) in [
+            ("VALUES (1), (2) ORDER BY 1 LIMIT 1", "LIMIT 1"),
+            ("WITH x AS (SELECT 1) VALUES (1)", "X AS ("),
+            ("VALUES (1) UNION ALL SELECT 2", "SELECT 2"),
+        ] {
+            let result = format(sql, style).unwrap().to_uppercase();
+            assert!(
+                result.contains(piece),
+                "\nStyle: {style}\nInput: {sql}\nmissing {piece:?} in:\n{result}"
+            );
+        }
+    }
+}
+
+// `ROW(a, b)` rendered as a bare `ROW`, dropping every field.
+#[test]
+fn explicit_row_fields_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "INSERT INTO on_hand VALUES (ROW('fuzzy dice', 42, 1.99), 1000)",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            result.contains("ROW('FUZZY DICE', 42, 1.99)"),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+    }
+}
+
+// A partition key keeps function arguments and the parentheses PostgreSQL
+// requires around an expression key.
+#[test]
+fn partition_key_expressions_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "CREATE TABLE m (d date) PARTITION BY RANGE (EXTRACT(YEAR FROM d), (d + 1))",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            result.contains("(EXTRACT(YEAR FROM D), (D + 1))"),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+    }
+}
+
+// A function in FROM keeps WITH ORDINALITY, and ROWS FROM keeps its calls.
+#[test]
+fn function_in_from_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "SELECT * FROM unnest(a) WITH ORDINALITY AS t(x, n), ROWS FROM (f(1), g(2)) AS r",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        for piece in ["WITH ORDINALITY AS T(X, N)", "ROWS FROM (F(1), G(2)) AS R"] {
+            assert!(
+                result.contains(piece),
+                "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+            );
+        }
+    }
+}
+
+// ORDER BY ... USING keeps its operator, and an INSERT target keeps the alias
+// that ON CONFLICT refers to.
+#[test]
+fn sort_operator_and_insert_alias_preserved() {
+    for &style in Style::ALL {
+        let sorted = format("SELECT * FROM t ORDER BY a USING ~<~", style).unwrap();
+        assert!(
+            sorted.contains("USING ~<~") || sorted.contains("using ~<~"),
+            "\nStyle: {style}\nGot:\n{sorted}"
+        );
+        let insert = format(
+            "INSERT INTO distributors AS d (did) VALUES (1) ON CONFLICT (did) DO UPDATE SET dname = 'x' WHERE d.zipcode <> '21201'",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            insert.contains("DISTRIBUTORS AS D"),
+            "\nStyle: {style}\nGot:\n{insert}"
+        );
+    }
+}
+
+// https://github.com/gmr/libpgfmt/issues/61: pg_dump style terminates every
+// statement when there is more than one, including before a comment.
+#[test]
+fn pgdump_terminates_multiple_statements() {
+    for sql in [
+        "UPDATE t SET a = 1; DELETE FROM t; SELECT 1;",
+        "SET x = on;   -- the default\nSELECT 1;",
+    ] {
+        let once = format(sql, Style::PgDump).unwrap();
+        format(&once, Style::PgDump)
+            .unwrap_or_else(|e| panic!("\nInput: {sql}\nFormatted to:\n{once}\nWhich fails: {e}"));
+    }
+    // A lone statement stays as the deparser writes it.
+    let lone = format("UPDATE t SET a = 1", Style::PgDump).unwrap();
+    assert!(!lone.ends_with(';'), "Got:\n{lone}");
+}
+
+// A `--` comment inside a passed-through clause keeps its newline, so it does
+// not comment out the rest of the statement.
+#[test]
+fn line_comment_newline_preserved_in_passthrough() {
+    let sql = "CREATE FUNCTION f(\n    a IN int,\n    b OUT int,  -- passed back\n    c OUT int)\nAS $$ BEGIN b := a; c := a; END $$ LANGUAGE plpgsql";
+    for &style in Style::ALL {
+        let once = format(sql, style).unwrap();
+        format(&once, style).unwrap_or_else(|e| {
+            panic!("\nStyle: {style}\nFormatted to:\n{once}\nWhich fails: {e}")
+        });
+    }
+}
+
+// In pg_dump layout, a `--` comment just before a spliced-in subquery keeps
+// its newline, so it does not comment out the subquery.
+#[test]
+fn pgdump_line_comment_before_subquery() {
+    let sql = "SELECT a FROM t WHERE x IN -- note\n (SELECT 1)";
+    let once = format(sql, Style::PgDump).unwrap();
+    format(&once, Style::PgDump)
+        .unwrap_or_else(|e| panic!("\nFormatted to:\n{once}\nWhich fails: {e}"));
+}
+
+// JSON_TABLE rendered as a bare keyword, dropping its arguments and columns.
+#[test]
+fn json_table_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "SELECT jt.* FROM f, JSON_TABLE(js, '$.a[*]' COLUMNS (id FOR ORDINALITY, k text PATH '$.k')) AS jt",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        assert!(
+            result.contains(
+                "JSON_TABLE(JS, '$.A[*]' COLUMNS (ID FOR ORDINALITY, K TEXT PATH '$.K'))"
+            ),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+    }
+}
+
+// A foreign table keeps PARTITION OF and its bound, INHERITS and IF NOT
+// EXISTS; losing PARTITION OF made it a plain table with an empty column list.
+#[test]
+fn foreign_table_header_preserved() {
+    for (sql, pieces) in [
+        (
+            "CREATE FOREIGN TABLE m7 PARTITION OF m FOR VALUES FROM ('2016-07-01') TO ('2016-08-01') SERVER s7",
+            &[
+                "PARTITION OF M",
+                "FOR VALUES FROM ('2016-07-01') TO ('2016-08-01')",
+            ][..],
+        ),
+        (
+            "CREATE FOREIGN TABLE IF NOT EXISTS c (x int) INHERITS (p) SERVER s",
+            &["IF NOT EXISTS C", "INHERITS (P)"][..],
+        ),
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap().to_uppercase();
+            for piece in pieces {
+                assert!(
+                    result.contains(piece),
+                    "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+                );
+            }
+            assert!(
+                !result.contains("(\n)"),
+                "\nStyle: {style}\nempty column list in:\n{result}"
+            );
+        }
+    }
+}
+
+// An empty column list is still written: PostgreSQL requires it before
+// INHERITS or SERVER when the table has no columns of its own.
+#[test]
+fn empty_column_list_preserved() {
+    for (sql, piece) in [
+        ("CREATE TABLE c () INHERITS (p)", "TABLE C ()"),
+        ("CREATE FOREIGN TABLE f () SERVER s", "TABLE F ()"),
+    ] {
+        for &style in Style::ALL {
+            let result = format(sql, style).unwrap().to_uppercase();
+            assert!(
+                result.contains(piece),
+                "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+            );
+        }
+    }
+}
+
+// An ERROR node's text is never rendered, so even a short one nested inside a
+// statement is rejected rather than silently dropped.
+#[test]
+fn nested_error_node_is_rejected() {
+    for sql in [
+        "SELECT * FROM tab WHERE lower(col) = LOWER(?)",
+        "SET LOCAL search_path TO @extschema@, pg_temp",
+    ] {
+        for &style in Style::ALL {
+            assert!(
+                matches!(
+                    format(sql, style),
+                    Err(libpgfmt::error::FormatError::Syntax(_))
+                ),
+                "\nStyle: {style}\nInput: {sql}\nGot: {:?}",
+                format(sql, style)
+            );
+        }
+    }
+}
