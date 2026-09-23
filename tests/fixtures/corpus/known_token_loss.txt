@@ -28,13 +28,6 @@
 134827d89a3556fb:mattmc3  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
 134827d89a3556fb:mozilla  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
 134827d89a3556fb:river  drops: partition of measurement for values from '2016-07-01' to ( '2016-08...
-13beaab7380bf501:aweber  drops: order by a
-13beaab7380bf501:dbt  drops: order by a
-13beaab7380bf501:gitlab  drops: order by a
-13beaab7380bf501:kickstarter  drops: order by a
-13beaab7380bf501:mattmc3  drops: order by a
-13beaab7380bf501:mozilla  drops: order by a
-13beaab7380bf501:river  drops: order by a
 17b7c77a26a8bb11:aweber  drops: with cascaded check option
 17b7c77a26a8bb11:dbt  drops: with cascaded check option
 17b7c77a26a8bb11:gitlab  drops: with cascaded check option
@@ -77,13 +70,6 @@
 3c575c83f95669a9:mattmc3  drops: with ( security_barrier )
 3c575c83f95669a9:mozilla  drops: with ( security_barrier )
 3c575c83f95669a9:river  drops: with ( security_barrier )
-3fd21b875a5c85aa:aweber  drops: order by v desc
-3fd21b875a5c85aa:dbt  drops: order by v desc
-3fd21b875a5c85aa:gitlab  drops: order by v desc
-3fd21b875a5c85aa:kickstarter  drops: order by v desc
-3fd21b875a5c85aa:mattmc3  drops: order by v desc
-3fd21b875a5c85aa:mozilla  drops: order by v desc
-3fd21b875a5c85aa:river  drops: order by v desc
 4dc429af639201e3:aweber  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4dc429af639201e3:dbt  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
 4dc429af639201e3:gitlab  drops: recursive n ( ) union all select n + 1 from nums_1_100 where n < 100
@@ -200,13 +186,6 @@ c06277f560204556:mattmc3  drops: - -
 c06277f560204556:mozilla  drops: - -
 c06277f560204556:pg_dump  drops: - -
 c06277f560204556:river  drops: - -
-c406de5853f604d0:aweber  drops: order by v
-c406de5853f604d0:dbt  drops: order by v
-c406de5853f604d0:gitlab  drops: order by v
-c406de5853f604d0:kickstarter  drops: order by v
-c406de5853f604d0:mattmc3  drops: order by v
-c406de5853f604d0:mozilla  drops: order by v
-c406de5853f604d0:river  drops: order by v
 c443608aa60a0d8c:aweber  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c443608aa60a0d8c:dbt  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
 c443608aa60a0d8c:gitlab  drops: ( t.f1 t.f2 ( t.f1 , t.f2 ) , )
@@ -229,13 +208,6 @@ ccd523c059a78328:mattmc3  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n   
 ccd523c059a78328:mozilla  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
 ccd523c059a78328:pg_dump  drops: '\";\n    };\n$$ LANGUAGE plperl;
 ccd523c059a78328:river  drops: '\\\\])/\\\\$1/g;\n        return \"' '\";\n    };\n$$ LANGUAGE plp...
-d4dca78e451567da:aweber  drops: order by v desc
-d4dca78e451567da:dbt  drops: order by v desc
-d4dca78e451567da:gitlab  drops: order by v desc
-d4dca78e451567da:kickstarter  drops: order by v desc
-d4dca78e451567da:mattmc3  drops: order by v desc
-d4dca78e451567da:mozilla  drops: order by v desc
-d4dca78e451567da:river  drops: order by v desc
 d9a78e7b01c8e0a7:aweber  drops: with ordinality
 d9a78e7b01c8e0a7:dbt  drops: with ordinality
 d9a78e7b01c8e0a7:gitlab  drops: with ordinality

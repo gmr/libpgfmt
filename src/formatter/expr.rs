@@ -701,6 +701,20 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// `ORDER BY a, b DESC` from a `sort_clause` or `opt_sort_clause`, on one
+    /// line, for use inside an aggregate call.
+    fn format_inline_sort_clause(&self, node: Node<'a>) -> String {
+        let sort = node.find_child("sort_clause").unwrap_or(node);
+        let Some(list) = sort.find_child("sortby_list") else {
+            return String::new();
+        };
+        let items: Vec<_> = flatten_list(list, "sortby_list")
+            .iter()
+            .map(|i| self.format_sortby(*i))
+            .collect();
+        format!("{} {}", self.kw_pair("ORDER", "BY"), items.join(", "))
+    }
+
     fn format_func_application(&self, node: Node<'a>) -> String {
         let name = node
             .find_child("func_name")
@@ -714,6 +728,9 @@ impl<'a> Formatter<'a> {
         let mut args = String::new();
         let mut has_star = false;
         let mut has_distinct = false;
+        let mut has_all = false;
+        let mut variadic = None;
+        let mut order_by = String::new();
         let mut over_clause = None;
 
         for child in &children {
@@ -731,6 +748,15 @@ impl<'a> Formatter<'a> {
                         args = formatted.join(", ");
                     }
                     "distinct_clause" | "kw_distinct" => has_distinct = true,
+                    "kw_all" => has_all = true,
+                    // `f(a, VARIADIC arr)`: the VARIADIC argument is a sibling
+                    // of the argument list, not part of it.
+                    "func_arg_expr" => variadic = Some(self.format_expr(*child)),
+                    // An aggregate's ORDER BY decides the order of the result
+                    // of string_agg, array_agg and the like.
+                    "opt_sort_clause" | "sort_clause" => {
+                        order_by = self.format_inline_sort_clause(*child);
+                    }
                     "over_clause" => over_clause = Some(*child),
                     "func_name" => {} // already handled
                     _ => {}
@@ -745,13 +771,26 @@ impl<'a> Formatter<'a> {
         } else {
             name
         };
-        let inner = if has_star {
+        if let Some(variadic) = variadic {
+            let variadic = format!("{} {variadic}", self.kw("VARIADIC"));
+            args = if args.is_empty() {
+                variadic
+            } else {
+                format!("{args}, {variadic}")
+            };
+        }
+        let mut inner = if has_star {
             "*".to_string()
         } else if has_distinct {
             format!("{} {args}", self.kw("DISTINCT"))
+        } else if has_all {
+            format!("{} {args}", self.kw("ALL"))
         } else {
             args
         };
+        if !order_by.is_empty() {
+            inner = format!("{inner} {order_by}");
+        }
 
         // ANY, ALL, SOME are special SQL constructs that conventionally
         // have a space before the opening paren.

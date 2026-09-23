@@ -845,3 +845,27 @@ fn pgdump_keeps_values_window_and_locking() {
         );
     }
 }
+
+// An aggregate's ORDER BY decides its result, and a VARIADIC argument is a
+// sibling of the argument list rather than part of it.
+#[test]
+fn aggregate_order_by_and_variadic_preserved() {
+    for &style in Style::ALL {
+        let result = format(
+            "SELECT string_agg(a, ',' ORDER BY a), array_agg(DISTINCT v ORDER BY v DESC), concat_ws(',', VARIADIC arr) FROM t",
+            style,
+        )
+        .unwrap()
+        .to_uppercase();
+        for piece in [
+            "',' ORDER BY A)",
+            "DISTINCT V ORDER BY V DESC)",
+            "',', VARIADIC ARR)",
+        ] {
+            assert!(
+                result.contains(piece),
+                "\nStyle: {style}\nmissing {piece:?} in:\n{result}"
+            );
+        }
+    }
+}
