@@ -222,6 +222,18 @@ impl<'a> Formatter<'a> {
                     let text = lexical::restore_literals(source, &self.format_stmt(stmt)?);
                     results.push(self.restore_comments(child, text));
                 }
+            } else if child.kind() == "comment"
+                && let Some(prev) = child.prev_sibling()
+                && prev.kind() != "comment"
+                && prev.end_position().row == child.start_position().row
+                && let Some(last) = results.last_mut()
+            {
+                // A comment on the same line as the end of a statement --
+                // `SELECT 1; -- why` -- stays on that line. Moving it to a
+                // paragraph of its own also made formatting unstable, since
+                // restore_comments can place a comment after the `;`.
+                last.push(' ');
+                last.push_str(self.text(child).trim_end());
             } else if child.kind() == "comment" {
                 // Standalone comments between/around top-level statements are
                 // direct children of `source_file`; preserve them verbatim in

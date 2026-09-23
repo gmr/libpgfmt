@@ -1252,3 +1252,23 @@ fn comments_inside_statements_preserved() {
         }
     }
 }
+
+// https://github.com/gmr/libpgfmt/issues/63: a comment inside an expression no
+// longer swallows the rest of its line, and a comment after a statement's `;`
+// stays on that line.
+#[test]
+fn comment_inside_expression_and_after_statement() {
+    for &style in Style::ALL {
+        for sql in [
+            "SELECT a FROM t WHERE x IN -- note\n (SELECT 1)",
+            "SELECT 1; -- why",
+        ] {
+            let once = format(sql, style).unwrap();
+            assert!(once.contains("-- "), "\nStyle: {style}\nGot:\n{once}");
+            let twice = format(&once, style).unwrap_or_else(|e| {
+                panic!("\nStyle: {style}\nFormatted to:\n{once}\nWhich fails: {e}")
+            });
+            assert_eq!(once, twice, "\nStyle: {style}\nInput:\n{sql}");
+        }
+    }
+}
