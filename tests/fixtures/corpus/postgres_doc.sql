@@ -343,6 +343,28 @@ CREATE TABLE postgres_log
 -- config.sgml
 COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
 ;;
+-- contrib-spi.sgml
+CREATE TRIGGER mytrigger
+AFTER INSERT OR UPDATE ON referencing_table
+FOR EACH ROW EXECUTE PROCEDURE
+check_primary_key (
+    'column A', 'column B',         -- referencing table columns
+    'myschema."referenced table"',  -- referenced table
+    '"column A"', '"column B"'      -- referenced table columns
+);
+;;
+-- contrib-spi.sgml
+CREATE TRIGGER mytrigger
+AFTER DELETE OR UPDATE ON referenced_table
+FOR EACH ROW EXECUTE PROCEDURE
+check_foreign_key (
+    1,                              -- number of referencing tables
+    'cascade',                      -- action
+    'column A', 'column B',         -- referenced table columns
+    'myschema."referencing table"', -- referencing table
+    '"column A"', '"column B"'      -- referencing table columns
+);
+;;
 -- cube.sgml
 SELECT c FROM test ORDER BY c <-> cube(ARRAY[0.5, 0.5, 0.5]) LIMIT 1;
 ;;
