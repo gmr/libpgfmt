@@ -711,31 +711,44 @@ impl<'a> Formatter<'a> {
 
     fn format_from_river(&self, from_node: Node<'a>, width: usize, lines: &mut Vec<String>) {
         if let Some(from_list) = from_node.find_child("from_list") {
-            let tables = flatten_list(from_list, "from_list");
-            if tables.is_empty() {
-                return;
-            }
-            for (i, table) in tables.iter().enumerate() {
-                let is_last = i == tables.len() - 1;
-                if table.kind() == "table_ref" && table.has_child("joined_table") {
-                    // Table with JOINs.
-                    let jt = table.find_child("joined_table").unwrap();
-                    self.format_joined_table_river(jt, width, i == 0, lines);
+            self.format_from_list_river(from_list, &self.kw("FROM"), width, lines);
+        }
+    }
+
+    /// Render a `from_list` river-aligned under `keyword`. SELECT uses FROM;
+    /// UPDATE ... FROM and DELETE ... USING also use this, so their JOINs get
+    /// the same layout as in a SELECT.
+    pub(crate) fn format_from_list_river(
+        &self,
+        from_list: Node<'a>,
+        keyword: &str,
+        width: usize,
+        lines: &mut Vec<String>,
+    ) {
+        let tables = flatten_list(from_list, "from_list");
+        if tables.is_empty() {
+            return;
+        }
+        for (i, table) in tables.iter().enumerate() {
+            let is_last = i == tables.len() - 1;
+            if table.kind() == "table_ref" && table.has_child("joined_table") {
+                // Table with JOINs.
+                let jt = table.find_child("joined_table").unwrap();
+                self.format_joined_table_river(jt, keyword, width, i == 0, lines);
+            } else {
+                let text = self.format_table_ref(*table);
+                if i == 0 {
+                    lines.push(self.river_line(keyword, &text, width));
                 } else {
-                    let text = self.format_table_ref(*table);
-                    if i == 0 {
-                        lines.push(self.river_line(&self.kw("FROM"), &text, width));
-                    } else {
-                        let content_col = width + 1;
-                        let padding = " ".repeat(content_col);
-                        lines.push(format!("{padding}{text}"));
-                    }
+                    let content_col = width + 1;
+                    let padding = " ".repeat(content_col);
+                    lines.push(format!("{padding}{text}"));
                 }
-                // A comma separates each FROM item from the next, whether the
-                // items are plain tables or JOIN groups.
-                if !is_last && let Some(last) = lines.last_mut() {
-                    last.push(',');
-                }
+            }
+            // A comma separates each FROM item from the next, whether the
+            // items are plain tables or JOIN groups.
+            if !is_last && let Some(last) = lines.last_mut() {
+                last.push(',');
             }
         }
     }
@@ -743,6 +756,7 @@ impl<'a> Formatter<'a> {
     fn format_joined_table_river(
         &self,
         node: Node<'a>,
+        keyword: &str,
         width: usize,
         is_first_from: bool,
         lines: &mut Vec<String>,
@@ -777,11 +791,11 @@ impl<'a> Formatter<'a> {
         // Format left side first (may be recursive).
         if let Some(left) = left_table {
             if let Some(inner_jt) = left.find_child("joined_table") {
-                self.format_joined_table_river(inner_jt, width, is_first_from, lines);
+                self.format_joined_table_river(inner_jt, keyword, width, is_first_from, lines);
             } else {
                 let text = self.format_table_ref(left);
                 if is_first_from {
-                    lines.push(self.river_line(&self.kw("FROM"), &text, width));
+                    lines.push(self.river_line(keyword, &text, width));
                 } else {
                     let content_col = width + 1;
                     lines.push(format!("{}{text}", " ".repeat(content_col)));
@@ -1551,37 +1565,47 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_from_left_aligned(&self, node: Node<'a>, lines: &mut Vec<String>) {
-        let indent = self.config.indent;
         if let Some(from_list) = node.find_child("from_list") {
-            let tables = flatten_list(from_list, "from_list");
-            if tables.is_empty() {
-                return;
-            }
+            self.format_from_list_left_aligned(from_list, &self.kw("FROM"), lines);
+        }
+    }
 
-            let single = tables.len() == 1;
-            for (i, table) in tables.iter().enumerate() {
-                let is_last = i == tables.len() - 1;
-                if table.kind() == "table_ref" && table.has_child("joined_table") {
-                    let jt = table.find_child("joined_table").unwrap();
-                    self.format_joined_table_left_aligned(jt, lines, i == 0);
-                } else {
-                    let text = self.format_table_ref(*table);
-                    if i == 0 {
-                        if single {
-                            lines.push(format!("{} {text}", self.kw("FROM")));
-                        } else {
-                            lines.push(self.kw("FROM"));
-                            lines.push(format!("{indent}{text}"));
-                        }
+    /// Left-aligned counterpart of [`Self::format_from_list_river`].
+    pub(crate) fn format_from_list_left_aligned(
+        &self,
+        from_list: Node<'a>,
+        keyword: &str,
+        lines: &mut Vec<String>,
+    ) {
+        let indent = self.config.indent;
+        let tables = flatten_list(from_list, "from_list");
+        if tables.is_empty() {
+            return;
+        }
+
+        let single = tables.len() == 1;
+        for (i, table) in tables.iter().enumerate() {
+            let is_last = i == tables.len() - 1;
+            if table.kind() == "table_ref" && table.has_child("joined_table") {
+                let jt = table.find_child("joined_table").unwrap();
+                self.format_joined_table_left_aligned(jt, keyword, lines, i == 0);
+            } else {
+                let text = self.format_table_ref(*table);
+                if i == 0 {
+                    if single {
+                        lines.push(format!("{keyword} {text}"));
                     } else {
+                        lines.push(keyword.to_string());
                         lines.push(format!("{indent}{text}"));
                     }
+                } else {
+                    lines.push(format!("{indent}{text}"));
                 }
-                // A comma separates each FROM item from the next, whether the
-                // items are plain tables or JOIN groups.
-                if !is_last && let Some(last) = lines.last_mut() {
-                    last.push(',');
-                }
+            }
+            // A comma separates each FROM item from the next, whether the
+            // items are plain tables or JOIN groups.
+            if !is_last && let Some(last) = lines.last_mut() {
+                last.push(',');
             }
         }
     }
@@ -1589,6 +1613,7 @@ impl<'a> Formatter<'a> {
     fn format_joined_table_left_aligned(
         &self,
         node: Node<'a>,
+        keyword: &str,
         lines: &mut Vec<String>,
         is_first: bool,
     ) {
@@ -1618,16 +1643,16 @@ impl<'a> Formatter<'a> {
         // Format left side.
         if let Some(left) = left_table {
             if let Some(inner_jt) = left.find_child("joined_table") {
-                self.format_joined_table_left_aligned(inner_jt, lines, is_first);
+                self.format_joined_table_left_aligned(inner_jt, keyword, lines, is_first);
             } else {
                 let text = self.format_table_ref(left);
                 if is_first {
                     // GitLab/Kickstarter: FROM and table on same line.
                     // Mozilla/dbt: FROM on its own line, table indented.
                     if self.style == Style::Gitlab || self.style == Style::Kickstarter {
-                        lines.push(format!("{} {text}", self.kw("FROM")));
+                        lines.push(format!("{keyword} {text}"));
                     } else {
-                        lines.push(self.kw("FROM"));
+                        lines.push(keyword.to_string());
                         lines.push(format!("{indent}{text}"));
                     }
                 } else {
