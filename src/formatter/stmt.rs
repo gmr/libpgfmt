@@ -267,8 +267,9 @@ impl<'a> Formatter<'a> {
         if self.config.river {
             // Collect keywords for river width.
             let mut keywords = vec![self.kw("UPDATE"), self.kw("SET")];
-            if node.has_child("from_clause") {
+            if let Some(from_c) = node.find_child("from_clause") {
                 keywords.push(self.kw("FROM"));
+                self.collect_join_keywords_for_river(from_c, &mut keywords);
             }
             if node.has_child("where_or_current_clause") {
                 keywords.push(self.kw("WHERE"));
@@ -320,7 +321,7 @@ impl<'a> Formatter<'a> {
             if let Some(from_c) = node.find_child("from_clause")
                 && let Some(from_list) = from_c.find_child("from_list")
             {
-                self.format_relation_list_river(from_list, &self.kw("FROM"), width, &mut lines);
+                self.format_from_list_river(from_list, &self.kw("FROM"), width, &mut lines);
             }
 
             // WHERE clause.
@@ -360,7 +361,7 @@ impl<'a> Formatter<'a> {
             if let Some(from_c) = node.find_child("from_clause")
                 && let Some(from_list) = from_c.find_child("from_list")
             {
-                self.format_relation_list_left_aligned(from_list, &self.kw("FROM"), &mut lines);
+                self.format_from_list_left_aligned(from_list, &self.kw("FROM"), &mut lines);
             }
 
             // WHERE clause.
@@ -397,57 +398,6 @@ impl<'a> Formatter<'a> {
             .map(|n| self.format_expr(n))
             .unwrap_or_default();
         format!("{target} = {value}")
-    }
-
-    /// Render a `from_list` (the relations of an UPDATE ... FROM or a
-    /// DELETE ... USING) river-aligned under the given keyword. The first
-    /// relation shares the keyword line; the rest are indented to the content
-    /// column.
-    fn format_relation_list_river(
-        &self,
-        from_list: Node<'a>,
-        keyword: &str,
-        width: usize,
-        lines: &mut Vec<String>,
-    ) {
-        let tables = flatten_list(from_list, "from_list");
-        let last = tables.len().saturating_sub(1);
-        for (i, table) in tables.iter().enumerate() {
-            let mut text = self.format_table_ref(*table);
-            if i < last {
-                text.push(',');
-            }
-            if i == 0 {
-                lines.push(self.river_line(keyword, &text, width));
-            } else {
-                let padding = " ".repeat(width + 1);
-                lines.push(format!("{padding}{text}"));
-            }
-        }
-    }
-
-    /// Left-aligned counterpart of [`Self::format_relation_list_river`].
-    fn format_relation_list_left_aligned(
-        &self,
-        from_list: Node<'a>,
-        keyword: &str,
-        lines: &mut Vec<String>,
-    ) {
-        let indent = self.config.indent;
-        let tables = flatten_list(from_list, "from_list");
-        if tables.len() == 1 {
-            lines.push(format!("{keyword} {}", self.format_table_ref(tables[0])));
-            return;
-        }
-        lines.push(keyword.to_string());
-        let last = tables.len().saturating_sub(1);
-        for (i, table) in tables.iter().enumerate() {
-            let mut text = self.format_table_ref(*table);
-            if i < last {
-                text.push(',');
-            }
-            lines.push(format!("{indent}{text}"));
-        }
     }
 
     // ── MERGE ───────────────────────────────────────────────────────────
@@ -650,8 +600,9 @@ impl<'a> Formatter<'a> {
         if self.config.river {
             let delete_kw = self.kw("DELETE");
             let mut keywords = vec![delete_kw.clone(), self.kw("FROM")];
-            if node.has_child("using_clause") {
+            if let Some(using_c) = node.find_child("using_clause") {
                 keywords.push(self.kw("USING"));
+                self.collect_join_keywords_for_river(using_c, &mut keywords);
             }
             if node.has_child("where_or_current_clause") {
                 keywords.push(self.kw("WHERE"));
@@ -671,7 +622,7 @@ impl<'a> Formatter<'a> {
             if let Some(using_c) = node.find_child("using_clause")
                 && let Some(from_list) = using_c.find_child("from_list")
             {
-                self.format_relation_list_river(from_list, &self.kw("USING"), width, &mut lines);
+                self.format_from_list_river(from_list, &self.kw("USING"), width, &mut lines);
             }
 
             if let Some(where_c) = node.find_child("where_or_current_clause") {
@@ -694,7 +645,7 @@ impl<'a> Formatter<'a> {
             if let Some(using_c) = node.find_child("using_clause")
                 && let Some(from_list) = using_c.find_child("from_list")
             {
-                self.format_relation_list_left_aligned(from_list, &self.kw("USING"), &mut lines);
+                self.format_from_list_left_aligned(from_list, &self.kw("USING"), &mut lines);
             }
 
             if let Some(where_c) = node.find_child("where_or_current_clause") {
