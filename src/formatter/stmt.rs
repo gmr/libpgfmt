@@ -267,8 +267,9 @@ impl<'a> Formatter<'a> {
         if self.config.river {
             // Collect keywords for river width.
             let mut keywords = vec![self.kw("UPDATE"), self.kw("SET")];
-            if node.has_child("from_clause") {
+            if let Some(from_c) = node.find_child("from_clause") {
                 keywords.push(self.kw("FROM"));
+                self.collect_join_keywords_for_river(from_c, &mut keywords);
             }
             if node.has_child("where_or_current_clause") {
                 keywords.push(self.kw("WHERE"));
@@ -599,8 +600,9 @@ impl<'a> Formatter<'a> {
         if self.config.river {
             let delete_kw = self.kw("DELETE");
             let mut keywords = vec![delete_kw.clone(), self.kw("FROM")];
-            if node.has_child("using_clause") {
+            if let Some(using_c) = node.find_child("using_clause") {
                 keywords.push(self.kw("USING"));
+                self.collect_join_keywords_for_river(using_c, &mut keywords);
             }
             if node.has_child("where_or_current_clause") {
                 keywords.push(self.kw("WHERE"));

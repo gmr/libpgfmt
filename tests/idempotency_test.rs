@@ -33,3 +33,36 @@ fn delete_using_join_is_idempotent() {
  WHERE berry.x = _foo.x;",
     );
 }
+
+/// A wide JOIN keyword sets the river width for UPDATE FROM and DELETE USING.
+#[test]
+fn dml_join_keyword_sets_river_width() {
+    let update = format(
+        "UPDATE t SET x = b.x FROM a LEFT JOIN b ON a.id = b.id WHERE a.y = 1;",
+        Style::Aweber,
+    )
+    .unwrap();
+    assert_eq!(
+        update,
+        "   UPDATE t
+      SET x = b.x
+     FROM a
+LEFT JOIN b
+       ON a.id = b.id
+    WHERE a.y = 1;"
+    );
+    let delete = format(
+        "DELETE FROM t USING a LEFT JOIN b ON a.id = b.id WHERE a.y = 1;",
+        Style::Aweber,
+    )
+    .unwrap();
+    assert_eq!(
+        delete,
+        "DELETE
+     FROM t
+    USING a
+LEFT JOIN b
+       ON a.id = b.id
+    WHERE a.y = 1;"
+    );
+}

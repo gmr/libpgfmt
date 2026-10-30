@@ -520,7 +520,11 @@ impl<'a> Formatter<'a> {
         keywords
     }
 
-    fn collect_join_keywords_for_river(&self, from_node: Node<'a>, keywords: &mut Vec<String>) {
+    pub(crate) fn collect_join_keywords_for_river(
+        &self,
+        from_node: Node<'a>,
+        keywords: &mut Vec<String>,
+    ) {
         if !self.config.joins_in_river {
             return;
         }
