@@ -1988,26 +1988,11 @@ impl<'a> Formatter<'a> {
         if children.is_empty() {
             return self.text(node).trim().to_string();
         }
-        let mut out = String::new();
-        for child in children {
-            let piece = self.render_clause_inline(child);
-            if piece.is_empty() {
-                continue;
-            }
-            if out.is_empty() {
-                out.push_str(&piece);
-                continue;
-            }
-            let glue_left = piece.starts_with([')', ',', ';']);
-            let glue_right = out.ends_with('(');
-            if glue_left || glue_right {
-                out.push_str(&piece);
-            } else {
-                out.push(' ');
-                out.push_str(&piece);
-            }
-        }
-        out
+        let pieces: Vec<String> = children
+            .into_iter()
+            .map(|c| self.render_clause_inline(c))
+            .collect();
+        super::expr::join_tokens(&pieces)
     }
 
     fn format_relation_expr_opt_alias(&self, node: Node<'a>) -> String {
