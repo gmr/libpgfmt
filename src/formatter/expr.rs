@@ -208,8 +208,18 @@ impl<'a> Formatter<'a> {
                 formatted.join(", ")
             }
             // `name => value` or `name := value`: keep the name, operator and value.
+            // Skip comment extras so that they do not move the operator and value.
             "func_arg_expr" => {
-                match (node.find_child("param_name"), node.child(1), node.child(2)) {
+                let mut cursor = node.walk();
+                let parts: Vec<_> = node
+                    .children(&mut cursor)
+                    .filter(|c| !c.is_extra())
+                    .collect();
+                match (
+                    node.find_child("param_name"),
+                    parts.get(1).copied(),
+                    parts.get(2).copied(),
+                ) {
                     (Some(name), Some(op), Some(value)) => format!(
                         "{} {} {}",
                         self.text(name),

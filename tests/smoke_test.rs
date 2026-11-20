@@ -1351,3 +1351,13 @@ fn named_function_arguments_keep_value() {
         "SELECT make_interval(days => 5),\n       f(a := 1, 2);"
     );
 }
+
+/// A comment between the name and the operator must not drop the value.
+#[test]
+fn named_function_arguments_with_comment_keep_value() {
+    for op in ["=>", ":="] {
+        let sql = format!("SELECT make_interval(days /* note */ {op} 5);");
+        let result = format(&sql, Style::River).unwrap();
+        assert!(result.contains(&format!("days {op} 5")), "\n{result}");
+    }
+}
