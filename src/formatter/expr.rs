@@ -207,7 +207,18 @@ impl<'a> Formatter<'a> {
                 let formatted: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
                 formatted.join(", ")
             }
-            "func_arg_expr" => self.format_first_named_child(node),
+            // `name => value` or `name := value`: keep the name, operator and value.
+            "func_arg_expr" => {
+                match (node.find_child("param_name"), node.child(1), node.child(2)) {
+                    (Some(name), Some(op), Some(value)) => format!(
+                        "{} {} {}",
+                        self.text(name),
+                        self.text(op),
+                        self.format_expr(value)
+                    ),
+                    _ => self.format_first_named_child(node),
+                }
+            }
             "array_expr" => self.format_array_expr(node),
             "opt_alias_clause" | "alias_clause" | "func_alias_clause" => self.format_alias(node),
             "group_by_item" => self.format_first_named_child(node),

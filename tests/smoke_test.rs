@@ -1340,3 +1340,14 @@ fn locking_after_limit_and_string_continuation() {
         assert_eq!(once, format(&once, style).unwrap(), "\nStyle: {style}");
     }
 }
+
+/// https://github.com/gmr/pgfmt/issues/17: named arguments kept only the name.
+#[test]
+fn named_function_arguments_keep_value() {
+    let sql = "SELECT make_interval(days => 5), f(a := 1, 2);";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT make_interval(days => 5),\n       f(a := 1, 2);"
+    );
+}
