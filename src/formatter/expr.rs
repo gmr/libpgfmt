@@ -235,11 +235,11 @@ impl<'a> Formatter<'a> {
             "ERROR" => self.text(node).to_string(),
             _ if node.kind().starts_with("kw_") => self.format_keyword_node(node),
             _ => {
-                // Fallback: reconstruct from children or use source text.
+                // Fallback: reconstruct from all children or use source text.
                 if node.named_child_count() == 0 {
                     self.text(node).to_string()
                 } else {
-                    self.format_first_named_child(node)
+                    join_tokens(&self.child_parts(node))
                 }
             }
         }
@@ -933,25 +933,16 @@ impl<'a> Formatter<'a> {
         }
 
         // Other forms (CURRENT_TIMESTAMP, etc.).
-        let mut cursor = subexpr.walk();
-        let mut parts = Vec::new();
-        for child in subexpr.children(&mut cursor) {
-            if child.is_named() {
-                match child.kind() {
-                    "func_application" => return self.format_func(child),
-                    _ if child.kind().starts_with("kw_") => {
-                        parts.push(self.format_keyword_node(child));
-                    }
-                    _ => parts.push(self.format_expr(child)),
-                }
-            } else {
-                let text = self.text(child).trim();
-                if !text.is_empty() {
-                    parts.push(text.to_string());
-                }
-            }
+        if let Some(app) = subexpr.find_child("func_application") {
+            return self.format_func(app);
         }
-        parts.join(" ")
+        let mut parts = self.child_parts(subexpr);
+        // Keyword functions take their parentheses directly: `SUBSTRING(...)`.
+        if parts.get(1).is_some_and(|p| p == "(") {
+            let open = parts.remove(1);
+            parts[0].push_str(&open);
+        }
+        join_tokens(&parts)
     }
 
     pub(crate) fn format_func_name(&self, node: Node<'a>) -> String {
@@ -1656,6 +1647,21 @@ impl<'a> Formatter<'a> {
         self.kw(self.text(node))
     }
 
+    /// Every child of `node`, formatted, so nothing is dropped. Named children
+    /// go through `format_expr`; tokens are kept as is. Join with `join_tokens`.
+    fn child_parts(&self, node: Node<'a>) -> Vec<String> {
+        let mut cursor = node.walk();
+        node.children(&mut cursor)
+            .map(|c| {
+                if c.is_named() {
+                    self.format_expr(c)
+                } else {
+                    self.text(c).trim().to_string()
+                }
+            })
+            .collect()
+    }
+
     fn format_first_named_child(&self, node: Node<'a>) -> String {
         let mut cursor = node.walk();
         if let Some(child) = node.named_children(&mut cursor).next() {
@@ -1798,6 +1804,20 @@ fn collapse_double_dots_outside_quotes(s: &str) -> String {
         i += 1;
     }
     result
+}
+
+/// Join formatted tokens with single spaces, but with no space after `(` and
+/// no space before `)`, `,` or `;`: `["f", "(", "a", ",", "b", ")"]` becomes
+/// `f (a, b)`, not `f ( a , b )`.
+pub(super) fn join_tokens(parts: &[String]) -> String {
+    let mut out = String::new();
+    for part in parts.iter().filter(|p| !p.is_empty()) {
+        if !out.is_empty() && !out.ends_with('(') && !part.starts_with([')', ',', ';']) {
+            out.push(' ');
+        }
+        out.push_str(part);
+    }
+    out
 }
 
 /// Returns true when `s` contains whitespace at the top level (outside any

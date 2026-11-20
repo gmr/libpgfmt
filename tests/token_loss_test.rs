@@ -36,7 +36,15 @@ fn fixture(name: &str) -> PathBuf {
 /// The corpus as `(id, sql)` pairs, where `id` identifies the statement by its
 /// text and so survives regenerating the corpus from a newer PostgreSQL.
 fn corpus() -> Vec<(String, String)> {
-    let path = fixture("postgres_doc.sql");
+    read_corpus("postgres_doc.sql")
+}
+
+/// Records from a corpus file in `tests/fixtures/corpus`, as `(id, sql)`.
+/// `probes.sql` holds statements for node kinds the documentation rarely
+/// uses; only the content check runs them, because some of them still format
+/// to SQL that does not parse.
+fn read_corpus(name: &str) -> Vec<(String, String)> {
+    let path = fixture(name);
     let body = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
     body.split("\n;;\n")
@@ -269,7 +277,7 @@ fn formatting_does_not_drop_content() {
     let mut regressions = Vec::new();
     let mut changed = Vec::new();
 
-    for (statement, sql) in corpus() {
+    for (statement, sql) in corpus().into_iter().chain(read_corpus("probes.sql")) {
         for &style in Style::ALL {
             let Ok(formatted) = format(&sql, style) else {
                 // Statements the grammar cannot parse are a separate concern;
