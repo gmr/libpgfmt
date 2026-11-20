@@ -207,7 +207,28 @@ impl<'a> Formatter<'a> {
                 let formatted: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
                 formatted.join(", ")
             }
-            "func_arg_expr" => self.format_first_named_child(node),
+            // `name => value` or `name := value`: keep the name, operator and value.
+            // Skip comment extras so that they do not move the operator and value.
+            "func_arg_expr" => {
+                let mut cursor = node.walk();
+                let parts: Vec<_> = node
+                    .children(&mut cursor)
+                    .filter(|c| !c.is_extra())
+                    .collect();
+                match (
+                    node.find_child("param_name"),
+                    parts.get(1).copied(),
+                    parts.get(2).copied(),
+                ) {
+                    (Some(name), Some(op), Some(value)) => format!(
+                        "{} {} {}",
+                        self.text(name),
+                        self.text(op),
+                        self.format_expr(value)
+                    ),
+                    _ => self.format_first_named_child(node),
+                }
+            }
             "array_expr" => self.format_array_expr(node),
             "opt_alias_clause" | "alias_clause" | "func_alias_clause" => self.format_alias(node),
             "group_by_item" => self.format_first_named_child(node),

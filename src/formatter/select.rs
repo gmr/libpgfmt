@@ -1292,7 +1292,7 @@ impl<'a> Formatter<'a> {
                 let cond_text = &buf[..buf.len() - kw_with_space];
                 current.push_str(cond_text);
                 conditions.push((current_op.clone(), current.trim().to_string()));
-                current = String::new();
+                current.clear();
                 current_op = kw.to_string();
                 buf.clear();
                 // Skip space after the keyword.
