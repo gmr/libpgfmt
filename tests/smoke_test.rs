@@ -1430,3 +1430,23 @@ fn join_using_keeps_alias() {
         );
     }
 }
+
+/// https://github.com/gmr/pgfmt/issues/20: a subquery in an AND/OR
+/// condition after the first was indented by the condition's column in the
+/// AND/OR chain, on top of its river position.
+#[test]
+fn subquery_in_later_condition_keeps_river() {
+    let sql =
+        "SELECT u.id FROM users u WHERE 1=1 AND NOT EXISTS (SELECT 1 FROM r WHERE r.x = u.id);";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT u.id\n  FROM users AS u\n WHERE 1 = 1\n   AND NOT EXISTS (SELECT 1\n                     FROM r\n                    WHERE r.x = u.id);"
+    );
+    let sql = "SELECT u.id FROM users u WHERE EXISTS (SELECT 1 FROM r WHERE r.a = 1) AND u.id IN (SELECT 1 FROM t WHERE t.b = 2);";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT u.id\n  FROM users AS u\n WHERE EXISTS (SELECT 1\n                 FROM r\n                WHERE r.a = 1)\n   AND u.id IN (SELECT 1\n                  FROM t\n                 WHERE t.b = 2);"
+    );
+}

@@ -1178,6 +1178,8 @@ impl<'a> Formatter<'a> {
         let mut conditions = Vec::new();
         let mut current = String::new();
         let mut current_op = String::new();
+        // Column, in `full_text`, where the current condition starts.
+        let mut current_col = 0;
         let mut paren_depth: u32 = 0;
         let mut in_between = false;
         let chars: Vec<char> = full_text.chars().collect();
@@ -1297,7 +1299,7 @@ impl<'a> Formatter<'a> {
                 let kw_with_space = kw.len() + 1; // " " + kw
                 let cond_text = &buf[..buf.len() - kw_with_space];
                 current.push_str(cond_text);
-                conditions.push((current_op.clone(), current.trim().to_string()));
+                conditions.push((current_op.clone(), dedent(current.trim(), current_col)));
                 current.clear();
                 current_op = kw.to_string();
                 buf.clear();
@@ -1305,11 +1307,13 @@ impl<'a> Formatter<'a> {
                 if i < len && chars[i] == ' ' {
                     i += 1;
                 }
+                let line_start = chars[..i].iter().rposition(|c| *c == '\n');
+                current_col = i - line_start.map_or(0, |n| n + 1);
             }
         }
         // Push remaining text.
         current.push_str(&buf);
-        let remaining = current.trim().to_string();
+        let remaining = dedent(current.trim(), current_col);
         if !remaining.is_empty() {
             conditions.push((current_op, remaining));
         }
@@ -2154,4 +2158,20 @@ fn unwrap_paren_join(mut node: Node<'_>) -> Node<'_> {
         node = inner;
     }
     node
+}
+
+/// Remove up to `col` leading spaces from each continuation line of `text`.
+///
+/// A condition split out of a formatted AND/OR chain keeps the indentation it
+/// had at its column in the chain. The caller indents it again at its own
+/// position, so that offset must go. See https://github.com/gmr/pgfmt/issues/20.
+fn dedent(text: &str, col: usize) -> String {
+    let mut lines = text.split('\n');
+    let mut out = lines.next().unwrap_or("").to_string();
+    for line in lines {
+        let spaces = line.len() - line.trim_start_matches(' ').len();
+        out.push('\n');
+        out.push_str(&line[spaces.min(col)..]);
+    }
+    out
 }
