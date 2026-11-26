@@ -870,14 +870,11 @@ impl<'a> Formatter<'a> {
                 let content_col = width + 1;
                 let conditions = self.split_top_level_conditions(on_expr);
                 let on_kw = self.kw("ON");
-                let padding = " ".repeat(content_col);
-                lines.push(format!("{padding}{on_kw} {}", conditions[0].1));
-                if conditions.len() > 1 {
-                    // AND aligns with the start of ON's condition text.
-                    let and_indent = " ".repeat(content_col + on_kw.len() + 1);
-                    for (op, cond_text) in &conditions[1..] {
-                        lines.push(format!("{and_indent}{op} {cond_text}"));
-                    }
+                let on_width = content_col + on_kw.len();
+                lines.push(self.river_line(&on_kw, &conditions[0].1, on_width));
+                // AND aligns with the start of ON's condition text.
+                for (op, cond_text) in &conditions[1..] {
+                    lines.push(self.river_line(op, cond_text, on_width + 1 + op.len()));
                 }
             } else {
                 // Plain JOIN: ON is river-aligned.
@@ -1179,6 +1176,12 @@ impl<'a> Formatter<'a> {
         let mut conditions = Vec::new();
         let mut current = String::new();
         let mut current_op = String::new();
+        // Column, in `full_text`, where the current condition starts.
+        let mut current_col = 0;
+        // Start of the line that holds `scanned`, and the end of the text
+        // already searched for newlines.
+        let mut line_start = 0;
+        let mut scanned = 0;
         let mut paren_depth: u32 = 0;
         let mut in_between = false;
         let chars: Vec<char> = full_text.chars().collect();
@@ -1298,7 +1301,7 @@ impl<'a> Formatter<'a> {
                 let kw_with_space = kw.len() + 1; // " " + kw
                 let cond_text = &buf[..buf.len() - kw_with_space];
                 current.push_str(cond_text);
-                conditions.push((current_op.clone(), current.trim().to_string()));
+                conditions.push((current_op.clone(), dedent(current.trim(), current_col)));
                 current.clear();
                 current_op = kw.to_string();
                 buf.clear();
@@ -1306,11 +1309,18 @@ impl<'a> Formatter<'a> {
                 if i < len && chars[i] == ' ' {
                     i += 1;
                 }
+                // Scan only the text since the last separator, so the whole
+                // loop stays linear.
+                if let Some(n) = chars[scanned..i].iter().rposition(|c| *c == '\n') {
+                    line_start = scanned + n + 1;
+                }
+                scanned = i;
+                current_col = i - line_start;
             }
         }
         // Push remaining text.
         current.push_str(&buf);
-        let remaining = current.trim().to_string();
+        let remaining = dedent(current.trim(), current_col);
         if !remaining.is_empty() {
             conditions.push((current_op, remaining));
         }
@@ -1727,7 +1737,7 @@ impl<'a> Formatter<'a> {
             if conditions.len() > 1 {
                 let indent = self.config.indent;
                 for (op, cond_text) in &conditions[1..] {
-                    lines.push(format!("{indent}{op} {cond_text}"));
+                    Self::push_indented_multiline(lines, indent, &format!("{op} {cond_text}"));
                 }
             }
         }
@@ -1738,13 +1748,10 @@ impl<'a> Formatter<'a> {
         if node.has_child("kw_on") {
             if let Some(expr) = node.find_child_any(&["a_expr", "c_expr"]) {
                 let conditions = self.split_top_level_conditions(expr);
-                if conditions.len() <= 1 {
-                    lines.push(format!("{indent}{} {}", self.kw("ON"), conditions[0].1));
-                } else {
-                    lines.push(format!("{indent}{} {}", self.kw("ON"), conditions[0].1));
-                    for (op, cond_text) in &conditions[1..] {
-                        lines.push(format!("{indent}{op} {cond_text}"));
-                    }
+                let on = format!("{} {}", self.kw("ON"), conditions[0].1);
+                Self::push_indented_multiline(lines, indent, &on);
+                for (op, cond_text) in &conditions[1..] {
+                    Self::push_indented_multiline(lines, indent, &format!("{op} {cond_text}"));
                 }
             }
         } else if node.has_child("kw_using") {
@@ -1784,9 +1791,17 @@ impl<'a> Formatter<'a> {
     }
 
     /// Push a potentially multi-line text with each line prefixed by indent.
+    /// A line that continues a string literal is data, so it gets no prefix.
     fn push_indented_multiline(lines: &mut Vec<String>, indent: &str, text: &str) {
-        for line in text.lines() {
-            if line.is_empty() {
+        let inside = newlines_inside_literal(text);
+        for (i, line) in text.split('\n').enumerate() {
+            if i > 0 && inside.get(i - 1).copied().unwrap_or(false) {
+                // Join the literal line to the previous entry, unchanged.
+                if let Some(last) = lines.last_mut() {
+                    last.push('\n');
+                    last.push_str(line);
+                }
+            } else if line.is_empty() {
                 lines.push(String::new());
             } else {
                 lines.push(format!("{indent}{line}"));
@@ -1809,9 +1824,9 @@ impl<'a> Formatter<'a> {
         if let Some(expr) = node.find_child_any(&["a_expr", "c_expr"]) {
             let conditions = self.split_top_level_conditions(expr);
             lines.push(self.kw(keyword));
-            lines.push(format!("{indent}{}", conditions[0].1));
+            Self::push_indented_multiline(lines, indent, &conditions[0].1);
             for (op, cond_text) in &conditions[1..] {
-                lines.push(format!("{indent}{op} {cond_text}"));
+                Self::push_indented_multiline(lines, indent, &format!("{op} {cond_text}"));
             }
         }
     }
@@ -2156,6 +2171,22 @@ fn unwrap_paren_join(mut node: Node<'_>) -> Node<'_> {
         node = inner;
     }
     node
+}
+
+/// Remove up to `col` leading spaces from each continuation line of `text`.
+///
+/// A condition split out of a formatted AND/OR chain keeps the indentation it
+/// had at its column in the chain. The caller indents it again at its own
+/// position, so that offset must go. See https://github.com/gmr/pgfmt/issues/20.
+fn dedent(text: &str, col: usize) -> String {
+    let mut lines = text.split('\n');
+    let mut out = lines.next().unwrap_or("").to_string();
+    for line in lines {
+        let spaces = line.len() - line.trim_start_matches(' ').len();
+        out.push('\n');
+        out.push_str(&line[spaces.min(col)..]);
+    }
+    out
 }
 
 /// The JOIN group of a `table_ref`, for the JOIN walkers. An aliased group,

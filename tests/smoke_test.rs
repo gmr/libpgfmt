@@ -1473,3 +1473,55 @@ fn join_using_keeps_alias() {
         );
     }
 }
+
+/// https://github.com/gmr/pgfmt/issues/20: a subquery in an AND/OR
+/// condition after the first was indented by the condition's column in the
+/// AND/OR chain, on top of its river position.
+#[test]
+fn subquery_in_later_condition_keeps_river() {
+    let sql =
+        "SELECT u.id FROM users u WHERE 1=1 AND NOT EXISTS (SELECT 1 FROM r WHERE r.x = u.id);";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT u.id\n  FROM users AS u\n WHERE 1 = 1\n   AND NOT EXISTS (SELECT 1\n                     FROM r\n                    WHERE r.x = u.id);"
+    );
+    let sql = "SELECT u.id FROM users u WHERE EXISTS (SELECT 1 FROM r WHERE r.a = 1) AND u.id IN (SELECT 1 FROM t WHERE t.b = 2);";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT u.id\n  FROM users AS u\n WHERE EXISTS (SELECT 1\n                 FROM r\n                WHERE r.a = 1)\n   AND u.id IN (SELECT 1\n                  FROM t\n                 WHERE t.b = 2);"
+    );
+    // A non-ASCII character before the subquery must not shift its indent.
+    let sql =
+        "SELECT u.id FROM users u WHERE u.name = 'é' AND u.id IN (SELECT 1 FROM t WHERE t.b = 2);";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT u.id\n  FROM users AS u\n WHERE u.name = 'é'\n   AND u.id IN (SELECT 1\n                  FROM t\n                 WHERE t.b = 2);"
+    );
+}
+
+/// A subquery in a later JOIN ON or HAVING condition stays beneath its
+/// condition. A multiline string literal keeps its text.
+#[test]
+fn subquery_in_later_join_condition_keeps_indent() {
+    let sql = "SELECT a.id FROM a INNER JOIN b ON a.id = b.id AND EXISTS (SELECT 1 FROM c WHERE c.x = a.id);";
+    assert_eq!(
+        format(sql, Style::River).unwrap(),
+        "SELECT a.id\n  FROM a\n       INNER JOIN b\n       ON a.id = b.id\n          AND EXISTS (SELECT 1\n                        FROM c\n                       WHERE c.x = a.id);"
+    );
+    assert_eq!(
+        format(sql, Style::Mozilla).unwrap(),
+        "SELECT a.id\nFROM\n    a\nINNER JOIN\n    b\n    ON a.id = b.id\n    AND EXISTS (\n        SELECT 1\n        FROM c\n        WHERE\n            c.x = a.id\n    );"
+    );
+    assert_eq!(
+        format(sql, Style::Kickstarter).unwrap(),
+        "SELECT a.id\nFROM a\nINNER JOIN b ON a.id = b.id\n  AND EXISTS (\n    SELECT 1\n    FROM c\n    WHERE\n      c.x = a.id\n  );"
+    );
+    let sql = "SELECT a.id FROM a GROUP BY a.id HAVING COUNT(*) > 1 AND MAX(a.s) = 'x\n  y';";
+    assert_eq!(
+        format(sql, Style::Mozilla).unwrap(),
+        "SELECT a.id\nFROM a\nGROUP BY a.id\nHAVING\n    COUNT(*) > 1\n    AND MAX(a.s) = 'x\n  y';"
+    );
+}
