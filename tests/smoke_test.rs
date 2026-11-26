@@ -1444,6 +1444,10 @@ fn aliased_join_group_keeps_alias() {
     let first = format(sql, Style::River).unwrap();
     assert_eq!(first.matches("/* one\ntwo */").count(), 1, "\n{first}");
     assert_eq!(format(&first, Style::River).unwrap(), first);
+    // A bare carriage return ends a line comment, so the next JOIN is kept.
+    let sql = "SELECT j.id FROM (t1 JOIN t2 USING (id) -- note\r JOIN t3 USING (id)) AS j;";
+    let result = format(sql, Style::River).unwrap();
+    assert!(result.contains("JOIN t3 USING (id)"), "\n{result}");
 }
 
 /// https://github.com/gmr/libpgfmt/issues/79: the alias of

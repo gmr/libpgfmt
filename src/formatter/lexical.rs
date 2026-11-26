@@ -39,7 +39,7 @@ pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
         '-' if chars.get(i + 1) == Some(&'-') => {
             let end = chars[i..]
                 .iter()
-                .position(|c| *c == '\n')
+                .position(|c| matches!(c, '\n' | '\r'))
                 .map_or(chars.len(), |p| i + p);
             Some((Span::LineComment, end))
         }
