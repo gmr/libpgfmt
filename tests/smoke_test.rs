@@ -1383,6 +1383,11 @@ fn on_conflict_target_keeps_where() {
             result.contains("-- partial"),
             "\nStyle: {style}\nGot:\n{result}"
         );
+        let upper = result.to_uppercase();
+        assert!(
+            upper.contains("Y IS NULL") && upper.contains("DO NOTHING"),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
     }
 }
 
