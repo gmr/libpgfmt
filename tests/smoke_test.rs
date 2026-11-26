@@ -1439,6 +1439,11 @@ fn aliased_join_group_keeps_alias() {
         "\n{first}"
     );
     assert_eq!(format(&first, Style::River).unwrap(), first);
+    // A multi-line block comment in the group is kept once, not duplicated.
+    let sql = "SELECT j.x FROM (t2 AS b /* one\ntwo */ JOIN t3 AS c ON b.id = c.id) AS j;";
+    let first = format(sql, Style::River).unwrap();
+    assert_eq!(first.matches("/* one\ntwo */").count(), 1, "\n{first}");
+    assert_eq!(format(&first, Style::River).unwrap(), first);
 }
 
 /// https://github.com/gmr/libpgfmt/issues/79: the alias of

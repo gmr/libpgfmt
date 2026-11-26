@@ -143,6 +143,36 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
     out
 }
 
+/// `text` with each comment replaced by a space. Literals and quoted
+/// identifiers are copied verbatim.
+///
+/// Use this before embedding source text that layout can re-indent:
+/// `Formatter::restore_comments` then places each comment again. A comment
+/// left in the text and changed by the indent no longer matches its source,
+/// so it was inserted a second time.
+pub(crate) fn strip_comments(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        match scan(&chars, i) {
+            Some((Span::LineComment | Span::BlockComment, end)) => {
+                out.push(' ');
+                i = end;
+            }
+            Some((_, end)) => {
+                out.extend(&chars[i..end]);
+                i = end;
+            }
+            None => {
+                out.push(chars[i]);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
 /// Put back the original spelling of every string constant and quoted
 /// identifier in `output` whose text differs from one in `source` only in
 /// whitespace.
@@ -460,6 +490,14 @@ mod tests {
         assert_eq!(collapse_whitespace("f(a, -- why\n  b)"), "f(a, -- why\nb)");
         assert_eq!(collapse_whitespace("'foo'\n   'bar'"), "'foo'\n'bar'");
         assert_eq!(collapse_whitespace("'a  b' \"c  d\""), "'a  b' \"c  d\"");
+    }
+
+    #[test]
+    fn strips_comments_only() {
+        assert_eq!(
+            strip_comments("a /* x\ny */ b -- z\n'/* k */'"),
+            "a   b  \n'/* k */'"
+        );
     }
 
     #[test]
