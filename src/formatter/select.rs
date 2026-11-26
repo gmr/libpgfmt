@@ -905,14 +905,18 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_using_clause(&self, node: Node<'a>) -> String {
-        if let Some(list) = node.find_child("name_list") {
-            let items = flatten_list(list, "name_list");
+        let list = ["name_list", "columnList"]
+            .into_iter()
+            .find_map(|k| node.find_child(k).map(|l| flatten_list(l, k)));
+        if let Some(items) = list {
             let formatted: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
-            format!("({})", formatted.join(", "))
-        } else if let Some(list) = node.find_child("columnList") {
-            let items = flatten_list(list, "columnList");
-            let formatted: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
-            format!("({})", formatted.join(", "))
+            let mut text = format!("({})", formatted.join(", "));
+            // `USING (a) AS j` (PostgreSQL 14+): the join alias.
+            if let Some(alias) = node.find_child("opt_alias_clause_for_join_using") {
+                text.push(' ');
+                text.push_str(&self.render_clause_inline(alias));
+            }
+            text
         } else {
             // Fallback.
             let text = self.text(node);

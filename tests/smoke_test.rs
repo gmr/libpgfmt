@@ -1440,3 +1440,27 @@ fn aliased_join_group_keeps_alias() {
     );
     assert_eq!(format(&first, Style::River).unwrap(), first);
 }
+
+/// https://github.com/gmr/libpgfmt/issues/79: the alias of
+/// `JOIN ... USING (...) AS alias` was dropped.
+#[test]
+fn join_using_keeps_alias() {
+    let sql = "SELECT j.a FROM t1 JOIN t2 USING (a, b) AS j;";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT j.a\n  FROM t1\n  JOIN t2\n USING (a, b) AS j;"
+    );
+    for style in [
+        Style::Mozilla,
+        Style::Kickstarter,
+        Style::Dbt,
+        Style::PgDump,
+    ] {
+        let result = format(sql, style).unwrap().to_lowercase();
+        assert!(
+            result.contains("using (a, b) as j"),
+            "\nStyle: {style}\n{result}"
+        );
+    }
+}
