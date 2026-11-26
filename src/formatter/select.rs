@@ -870,14 +870,11 @@ impl<'a> Formatter<'a> {
                 let content_col = width + 1;
                 let conditions = self.split_top_level_conditions(on_expr);
                 let on_kw = self.kw("ON");
-                let padding = " ".repeat(content_col);
-                lines.push(format!("{padding}{on_kw} {}", conditions[0].1));
-                if conditions.len() > 1 {
-                    // AND aligns with the start of ON's condition text.
-                    let and_indent = " ".repeat(content_col + on_kw.len() + 1);
-                    for (op, cond_text) in &conditions[1..] {
-                        lines.push(format!("{and_indent}{op} {cond_text}"));
-                    }
+                let on_width = content_col + on_kw.len();
+                lines.push(self.river_line(&on_kw, &conditions[0].1, on_width));
+                // AND aligns with the start of ON's condition text.
+                for (op, cond_text) in &conditions[1..] {
+                    lines.push(self.river_line(op, cond_text, on_width + 1 + op.len()));
                 }
             } else {
                 // Plain JOIN: ON is river-aligned.
@@ -1740,7 +1737,7 @@ impl<'a> Formatter<'a> {
             if conditions.len() > 1 {
                 let indent = self.config.indent;
                 for (op, cond_text) in &conditions[1..] {
-                    lines.push(format!("{indent}{op} {cond_text}"));
+                    Self::push_indented_multiline(lines, indent, &format!("{op} {cond_text}"));
                 }
             }
         }
@@ -1751,13 +1748,10 @@ impl<'a> Formatter<'a> {
         if node.has_child("kw_on") {
             if let Some(expr) = node.find_child_any(&["a_expr", "c_expr"]) {
                 let conditions = self.split_top_level_conditions(expr);
-                if conditions.len() <= 1 {
-                    lines.push(format!("{indent}{} {}", self.kw("ON"), conditions[0].1));
-                } else {
-                    lines.push(format!("{indent}{} {}", self.kw("ON"), conditions[0].1));
-                    for (op, cond_text) in &conditions[1..] {
-                        lines.push(format!("{indent}{op} {cond_text}"));
-                    }
+                let on = format!("{} {}", self.kw("ON"), conditions[0].1);
+                Self::push_indented_multiline(lines, indent, &on);
+                for (op, cond_text) in &conditions[1..] {
+                    Self::push_indented_multiline(lines, indent, &format!("{op} {cond_text}"));
                 }
             }
         } else if node.has_child("kw_using") {
@@ -1797,9 +1791,17 @@ impl<'a> Formatter<'a> {
     }
 
     /// Push a potentially multi-line text with each line prefixed by indent.
+    /// A line that continues a string literal is data, so it gets no prefix.
     fn push_indented_multiline(lines: &mut Vec<String>, indent: &str, text: &str) {
-        for line in text.lines() {
-            if line.is_empty() {
+        let inside = newlines_inside_literal(text);
+        for (i, line) in text.split('\n').enumerate() {
+            if i > 0 && inside.get(i - 1).copied().unwrap_or(false) {
+                // Join the literal line to the previous entry, unchanged.
+                if let Some(last) = lines.last_mut() {
+                    last.push('\n');
+                    last.push_str(line);
+                }
+            } else if line.is_empty() {
                 lines.push(String::new());
             } else {
                 lines.push(format!("{indent}{line}"));
@@ -1822,9 +1824,9 @@ impl<'a> Formatter<'a> {
         if let Some(expr) = node.find_child_any(&["a_expr", "c_expr"]) {
             let conditions = self.split_top_level_conditions(expr);
             lines.push(self.kw(keyword));
-            lines.push(format!("{indent}{}", conditions[0].1));
+            Self::push_indented_multiline(lines, indent, &conditions[0].1);
             for (op, cond_text) in &conditions[1..] {
-                lines.push(format!("{indent}{op} {cond_text}"));
+                Self::push_indented_multiline(lines, indent, &format!("{op} {cond_text}"));
             }
         }
     }
