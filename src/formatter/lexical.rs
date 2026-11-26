@@ -418,7 +418,7 @@ fn line_end(chars: &[char], from: usize) -> (usize, bool) {
         if let Some((span, end)) = scan(chars, i) {
             has_comment |= span == Span::LineComment;
             i = end;
-        } else if chars[i] == '\n' {
+        } else if is_newline(chars[i]) {
             return (i, has_comment);
         } else {
             i += 1;
@@ -495,6 +495,7 @@ mod tests {
         assert_eq!(collapse_whitespace("'a'\n'b\\'  c'"), "'a'\n'b\\' c'");
         assert_eq!(collapse_whitespace("'a'\r'b'"), "'a'\n'b'");
         assert_eq!(collapse_whitespace("f(a, -- why\r  b)"), "f(a, -- why\nb)");
+        assert_eq!(collapse_whitespace("a -- c\rb"), "a -- c\nb");
         assert_eq!(collapse_whitespace("foo\u{a0}bar  x"), "foo\u{a0}bar x");
     }
 
@@ -564,6 +565,18 @@ mod tests {
                 restored
             );
         }
+        // A bare carriage return ends the line, also after a line comment.
+        let chars: Vec<char> = "a -- c\rb\nd".chars().collect();
+        assert_eq!(line_end(&chars, 1), (6, true));
+        assert_eq!(
+            restore_comments(
+                "SELECT a -- x",
+                &[(9, "-- x".to_string())],
+                "SELECT a -- y\rFROM t"
+            )
+            .unwrap(),
+            "SELECT a -- y\n-- x\rFROM t"
+        );
         // The anchor was rewritten: no place for the comment.
         assert!(
             restore_comments(
