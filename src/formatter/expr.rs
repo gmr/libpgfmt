@@ -528,16 +528,7 @@ impl<'a> Formatter<'a> {
 
         // Clean up double spaces on each line, preserving leading whitespace
         // and spaces inside quoted strings.
-        result
-            .lines()
-            .map(|line| {
-                let leading = line.len() - line.trim_start().len();
-                let prefix = &line[..leading];
-                let cleaned = super::lexical::collapse_whitespace(&line[leading..]);
-                format!("{prefix}{cleaned}")
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        super::lexical::collapse_lines(&result)
     }
 
     fn format_columnref(&self, node: Node<'a>) -> String {

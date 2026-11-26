@@ -96,12 +96,21 @@ fn quoted_end(chars: &[char], mut i: usize, escapes: bool) -> usize {
 /// continue it. PostgreSQL joins a constant and a part after a line break
 /// into one value, and that part is an escape string too: `\'` in it is an
 /// escaped quote, not the end. Scanned alone, the part ends early there.
+/// A `--` comment can sit between the parts (`quotecontinue` in `scan.l`).
 fn escape_end(chars: &[char], i: usize) -> usize {
     let mut end = quoted_end(chars, i, true);
     loop {
         let mut j = end;
-        while j < chars.len() && is_separator(chars[j]) {
-            j += 1;
+        while j < chars.len() {
+            if is_separator(chars[j]) {
+                j += 1;
+            } else if chars[j] == '-' && chars.get(j + 1) == Some(&'-') {
+                while j < chars.len() && !is_newline(chars[j]) {
+                    j += 1;
+                }
+            } else {
+                break;
+            }
         }
         if chars.get(j) != Some(&'\'') || !chars[end..j].iter().any(|c| is_newline(*c)) {
             return end;
@@ -171,6 +180,39 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
         i += 1;
     }
     out
+}
+
+/// Apply [`collapse_whitespace`] to each line of `text`, but keep the
+/// indentation of each line. Only a newline outside every constant and
+/// comment starts a line, so the lines of a multi-line constant stay as
+/// they are.
+pub(crate) fn collapse_lines(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < chars.len() {
+        if let Some((_, end)) = scan(&chars, i) {
+            i = end;
+        } else if chars[i] == '\n' {
+            lines.push(&chars[start..i]);
+            i += 1;
+            start = i;
+        } else {
+            i += 1;
+        }
+    }
+    lines.push(&chars[start..]);
+    lines
+        .into_iter()
+        .map(|line| {
+            let leading = line.iter().take_while(|c| c.is_whitespace()).count();
+            let prefix: String = line[..leading].iter().collect();
+            let rest: String = line[leading..].iter().collect();
+            prefix + &collapse_whitespace(&rest)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Put back the original spelling of every string constant and quoted
@@ -492,6 +534,14 @@ mod tests {
         assert_eq!(collapse_whitespace("'a  b' \"c  d\""), "'a  b' \"c  d\"");
         // https://github.com/gmr/libpgfmt/issues/81
         assert_eq!(collapse_whitespace("E'a'\n'b\\'  c'"), "E'a'\n'b\\'  c'");
+        assert_eq!(
+            collapse_whitespace("E'a' -- c\n'b\\'  d'"),
+            "E'a' -- c\n'b\\'  d'"
+        );
+        assert_eq!(
+            collapse_whitespace("E'a'\n-- c\n'b\\'  d'"),
+            "E'a'\n-- c\n'b\\'  d'"
+        );
         assert_eq!(collapse_whitespace("'a'\n'b\\'  c'"), "'a'\n'b\\' c'");
         assert_eq!(collapse_whitespace("'a'\r'b'"), "'a'\n'b'");
         assert_eq!(collapse_whitespace("f(a, -- why\r  b)"), "f(a, -- why\nb)");

@@ -1457,3 +1457,16 @@ fn escape_string_continuation_keeps_value() {
         assert_eq!(once, format(&once, style).unwrap(), "\nStyle: {style}");
     }
 }
+
+/// A space at the end of an inner line of a dollar-quoted constant is data.
+#[test]
+fn dollar_string_keeps_trailing_space_on_inner_line() {
+    let sql = "SELECT $$a\nb \nc$$ || x AS y FROM t;";
+    for style in [Style::River, Style::Mozilla, Style::PgDump] {
+        let result = format(sql, style).unwrap();
+        assert!(
+            result.contains("$$a\nb \nc$$"),
+            "\nStyle: {style}\n{result}"
+        );
+    }
+}
