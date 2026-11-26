@@ -533,7 +533,7 @@ impl<'a> Formatter<'a> {
             .map(|line| {
                 let leading = line.len() - line.trim_start().len();
                 let prefix = &line[..leading];
-                let cleaned = collapse_whitespace_outside_quotes(&line[leading..]);
+                let cleaned = super::lexical::collapse_whitespace(&line[leading..]);
                 format!("{prefix}{cleaned}")
             })
             .collect::<Vec<_>>()
@@ -1749,7 +1749,7 @@ fn continuation_parts(text: &str) -> Option<Vec<String>> {
     let mut parts = Vec::new();
     let mut i = 0;
     while i < chars.len() {
-        if chars[i].is_whitespace() {
+        if super::lexical::is_separator(chars[i]) {
             i += 1;
             continue;
         }
@@ -1878,121 +1878,10 @@ fn has_top_level_space(s: &str) -> bool {
             '"' => in_double = true,
             '(' | '[' => depth += 1,
             ')' | ']' => depth -= 1,
-            c if c.is_whitespace() && depth == 0 => return true,
+            c if super::lexical::is_separator(c) && depth == 0 => return true,
             _ => {}
         }
         i += 1;
     }
     false
-}
-
-/// Collapse runs of whitespace to single spaces, but preserve whitespace
-/// inside single-quoted or double-quoted strings.
-fn collapse_whitespace_outside_quotes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut in_single_quote = false;
-    // True when the current single-quoted string is a PostgreSQL escape string
-    // (E'...'), which uses backslash escaping rather than only '' doubling.
-    let mut escape_string = false;
-    let mut in_double_quote = false;
-    let mut prev_was_space = false;
-
-    let chars: Vec<char> = s.chars().collect();
-    let len = chars.len();
-    let mut i = 0;
-
-    while i < len {
-        let ch = chars[i];
-
-        if in_single_quote {
-            result.push(ch);
-            // In an E'...' string a backslash escapes the next character, so a
-            // \' is not a terminator and its following bytes stay untouched.
-            if escape_string && ch == '\\' && i + 1 < len {
-                result.push(chars[i + 1]);
-                i += 2;
-                continue;
-            }
-            if ch == '\'' {
-                // Check for escaped quote ('').
-                if i + 1 < len && chars[i + 1] == '\'' {
-                    result.push('\'');
-                    i += 2;
-                    continue;
-                }
-                in_single_quote = false;
-                escape_string = false;
-            }
-            i += 1;
-            continue;
-        }
-
-        if in_double_quote {
-            result.push(ch);
-            if ch == '"' {
-                if i + 1 < len && chars[i + 1] == '"' {
-                    result.push('"');
-                    i += 2;
-                    continue;
-                }
-                in_double_quote = false;
-            }
-            i += 1;
-            continue;
-        }
-
-        if ch == '\'' {
-            in_single_quote = true;
-            // An E/e immediately preceding the quote (and not part of a longer
-            // identifier) marks a backslash-escaped string literal.
-            escape_string = i >= 1
-                && matches!(chars[i - 1], 'E' | 'e')
-                && (i < 2 || !(chars[i - 2].is_ascii_alphanumeric() || chars[i - 2] == '_'));
-            prev_was_space = false;
-            result.push(ch);
-        } else if ch == '"' {
-            in_double_quote = true;
-            prev_was_space = false;
-            result.push(ch);
-        } else if ch == '$' {
-            // Dollar-quoted string: $$...$$ or $tag$...$tag$.
-            let tag_start = i;
-            let mut tag_end = i + 1;
-            while tag_end < len && (chars[tag_end].is_ascii_alphanumeric() || chars[tag_end] == '_')
-            {
-                tag_end += 1;
-            }
-            if tag_end < len && chars[tag_end] == '$' {
-                let tag: String = chars[tag_start..=tag_end].iter().collect();
-                result.push_str(&tag);
-                i = tag_end + 1;
-                while i < len {
-                    let remaining: String = chars[i..].iter().collect();
-                    if remaining.starts_with(&tag) {
-                        result.push_str(&tag);
-                        i += tag.len();
-                        break;
-                    }
-                    result.push(chars[i]);
-                    i += 1;
-                }
-                prev_was_space = false;
-                continue;
-            }
-            // Not a dollar-quote, just a dollar sign.
-            prev_was_space = false;
-            result.push(ch);
-        } else if ch.is_whitespace() {
-            if !prev_was_space {
-                result.push(' ');
-                prev_was_space = true;
-            }
-        } else {
-            prev_was_space = false;
-            result.push(ch);
-        }
-        i += 1;
-    }
-
-    result
 }

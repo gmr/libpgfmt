@@ -31,7 +31,7 @@ pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
         '\'' => Some((Span::Literal, quoted_end(chars, i + 1, false))),
         '"' => Some((Span::Identifier, identifier_end(chars, i + 1))),
         'E' | 'e' if chars.get(i + 1) == Some(&'\'') && !continues_identifier(chars, i) => {
-            Some((Span::Literal, quoted_end(chars, i + 2, true)))
+            Some((Span::Literal, escape_end(chars, i + 2)))
         }
         '$' if !continues_identifier(chars, i) => {
             dollar_end(chars, i).map(|end| (Span::Literal, end))
@@ -39,7 +39,7 @@ pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
         '-' if chars.get(i + 1) == Some(&'-') => {
             let end = chars[i..]
                 .iter()
-                .position(|c| *c == '\n')
+                .position(|c| is_newline(*c))
                 .map_or(chars.len(), |p| i + p);
             Some((Span::LineComment, end))
         }
@@ -52,6 +52,18 @@ pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
         }
         _ => None,
     }
+}
+
+/// A newline to the PostgreSQL lexer: `newline [\n\r]` in `scan.l`.
+fn is_newline(c: char) -> bool {
+    matches!(c, '\n' | '\r')
+}
+
+/// Whitespace that separates tokens: `space [ \t\n\r\f\v]` in `scan.l`.
+/// Other Unicode whitespace, such as U+00A0, is a character of an unquoted
+/// identifier, so it must not be collapsed.
+pub(crate) fn is_separator(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c' | '\x0b')
 }
 
 /// Whether `chars[i]` continues the identifier before it, in which case no
@@ -78,6 +90,24 @@ fn quoted_end(chars: &[char], mut i: usize, escapes: bool) -> usize {
         }
     }
     chars.len()
+}
+
+/// End of an `E'...'` constant whose body starts at `i`, with the parts that
+/// continue it. PostgreSQL joins a constant and a part after a line break
+/// into one value, and that part is an escape string too: `\'` in it is an
+/// escaped quote, not the end. Scanned alone, the part ends early there.
+fn escape_end(chars: &[char], i: usize) -> usize {
+    let mut end = quoted_end(chars, i, true);
+    loop {
+        let mut j = end;
+        while j < chars.len() && is_separator(chars[j]) {
+            j += 1;
+        }
+        if chars.get(j) != Some(&'\'') || !chars[end..j].iter().any(|c| is_newline(*c)) {
+            return end;
+        }
+        end = quoted_end(chars, j + 1, true);
+    }
 }
 
 /// End of a quoted identifier whose body starts at `i`. A doubled quote is an
@@ -116,11 +146,11 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
             i = end;
             continue;
         }
-        if c.is_whitespace() {
+        if is_separator(c) {
             let mut j = i;
             let mut saw_newline = false;
-            while j < chars.len() && chars[j].is_whitespace() {
-                saw_newline |= chars[j] == '\n';
+            while j < chars.len() && is_separator(chars[j]) {
+                saw_newline |= is_newline(chars[j]);
                 j += 1;
             }
             let between_literals =
@@ -460,6 +490,12 @@ mod tests {
         assert_eq!(collapse_whitespace("f(a, -- why\n  b)"), "f(a, -- why\nb)");
         assert_eq!(collapse_whitespace("'foo'\n   'bar'"), "'foo'\n'bar'");
         assert_eq!(collapse_whitespace("'a  b' \"c  d\""), "'a  b' \"c  d\"");
+        // https://github.com/gmr/libpgfmt/issues/81
+        assert_eq!(collapse_whitespace("E'a'\n'b\\'  c'"), "E'a'\n'b\\'  c'");
+        assert_eq!(collapse_whitespace("'a'\n'b\\'  c'"), "'a'\n'b\\' c'");
+        assert_eq!(collapse_whitespace("'a'\r'b'"), "'a'\n'b'");
+        assert_eq!(collapse_whitespace("f(a, -- why\r  b)"), "f(a, -- why\nb)");
+        assert_eq!(collapse_whitespace("foo\u{a0}bar  x"), "foo\u{a0}bar x");
     }
 
     #[test]
