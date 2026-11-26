@@ -543,6 +543,7 @@ impl<'a> Formatter<'a> {
     }
 
     fn collect_join_keywords_inner(&self, node: Node<'a>, keywords: &mut Vec<String>) {
+        let node = unwrap_paren_join(node);
         if node.kind() == "joined_table" {
             // Get the join keyword.
             let join_kw = self.get_join_keyword(node);
@@ -765,6 +766,7 @@ impl<'a> Formatter<'a> {
         is_first_from: bool,
         lines: &mut Vec<String>,
     ) {
+        let node = unwrap_paren_join(node);
         // A joined_table has: left table_ref, join_type, JOIN, right table_ref, join_qual.
         // Recursion: left table_ref may itself contain a joined_table.
         let named = node.named_children_vec();
@@ -1621,6 +1623,7 @@ impl<'a> Formatter<'a> {
         lines: &mut Vec<String>,
         is_first: bool,
     ) {
+        let node = unwrap_paren_join(node);
         let indent = self.config.indent;
         let named = node.named_children_vec();
 
@@ -2135,4 +2138,16 @@ fn newlines_inside_literal(content: &str) -> Vec<bool> {
         i += 1;
     }
     out
+}
+
+/// Strip redundant parentheses from a `( joined_table )` node. A plain
+/// joined_table never has a joined_table child; only the parenthesized form
+/// does. JOINs are left-associative, so parentheses around a top-level or
+/// left-hand JOIN group are redundant. Without this, the JOIN walkers find no
+/// table_ref and drop the group.
+fn unwrap_paren_join(mut node: Node<'_>) -> Node<'_> {
+    while let Some(inner) = node.find_child("joined_table") {
+        node = inner;
+    }
+    node
 }

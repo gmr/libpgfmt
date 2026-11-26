@@ -202,6 +202,10 @@ impl<'a> Formatter<'a> {
                 let items = flatten_list(idx, "index_params");
                 let cols: Vec<_> = items.iter().map(|i| self.format_expr(*i)).collect();
                 parts.push(format!("({})", cols.join(", ")));
+                // Partial unique index inference: `(col) WHERE predicate`.
+                if let Some(w) = conf.find_child("where_clause") {
+                    parts.push(self.render_clause_inline(w));
+                }
             } else if let Some(name) = conf.find_child("name") {
                 parts.push(format!(
                     "{} {}",
@@ -232,10 +236,8 @@ impl<'a> Formatter<'a> {
                 parts.push(formatted.join(", "));
             }
         }
-        if let Some(where_c) = node.find_child("where_clause")
-            && let Some(expr) = where_c.find_child_any(&["a_expr", "c_expr"])
-        {
-            parts.push(format!("{} {}", self.kw("WHERE"), self.format_expr(expr)));
+        if let Some(w) = node.find_child("where_clause") {
+            parts.push(self.render_clause_inline(w));
         }
 
         parts.retain(|p| !p.is_empty());
