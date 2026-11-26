@@ -1181,6 +1181,10 @@ impl<'a> Formatter<'a> {
         let mut current_op = String::new();
         // Column, in `full_text`, where the current condition starts.
         let mut current_col = 0;
+        // Start of the line that holds `scanned`, and the end of the text
+        // already searched for newlines.
+        let mut line_start = 0;
+        let mut scanned = 0;
         let mut paren_depth: u32 = 0;
         let mut in_between = false;
         let chars: Vec<char> = full_text.chars().collect();
@@ -1308,8 +1312,13 @@ impl<'a> Formatter<'a> {
                 if i < len && chars[i] == ' ' {
                     i += 1;
                 }
-                let line_start = chars[..i].iter().rposition(|c| *c == '\n');
-                current_col = i - line_start.map_or(0, |n| n + 1);
+                // Scan only the text since the last separator, so the whole
+                // loop stays linear.
+                if let Some(n) = chars[scanned..i].iter().rposition(|c| *c == '\n') {
+                    line_start = scanned + n + 1;
+                }
+                scanned = i;
+                current_col = i - line_start;
             }
         }
         // Push remaining text.
