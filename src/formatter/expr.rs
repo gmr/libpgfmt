@@ -1714,7 +1714,15 @@ impl<'a> Formatter<'a> {
                 "opt_alias_clause" | "alias_clause" | "func_alias_clause" => {
                     parts.push(self.format_alias(child));
                 }
-                "joined_table" => return self.text(child).to_string(), // handled elsewhere
+                // An aliased group, `(a JOIN b ON ...) AS j`, keeps its
+                // parentheses; the alias follows. Otherwise the JOIN walkers
+                // in select.rs render the group.
+                "joined_table" if node.has_child("alias_clause") => {
+                    let group = super::lexical::strip_comments(self.text(child));
+                    let group = super::lexical::collapse_whitespace(&group);
+                    parts.push(format!("({group})"));
+                }
+                "joined_table" => return self.text(child).to_string(),
                 // TABLESAMPLE method(args) [REPEATABLE (n)]: flat keyword and
                 // punctuation, which format_expr reduced to a bare TABLESAMPLE.
                 "tablesample_clause" => parts.push(self.render_clause_inline(child)),
