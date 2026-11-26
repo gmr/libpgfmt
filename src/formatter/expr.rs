@@ -1718,7 +1718,8 @@ impl<'a> Formatter<'a> {
                 // parentheses; the alias follows. Otherwise the JOIN walkers
                 // in select.rs render the group.
                 "joined_table" if node.has_child("alias_clause") => {
-                    parts.push(format!("({})", self.text(child)));
+                    let group = super::lexical::collapse_whitespace(self.text(child));
+                    parts.push(format!("({group})"));
                 }
                 "joined_table" => return self.text(child).to_string(),
                 // TABLESAMPLE method(args) [REPEATABLE (n)]: flat keyword and

@@ -1431,4 +1431,12 @@ fn aliased_join_group_keeps_alias() {
             "\nStyle: {style}\n{result}"
         );
     }
+    // A multi-line group is collapsed to one line, so a second pass is stable.
+    let sql = "SELECT j.x FROM (t2 AS b\n    JOIN t3 AS c\n      ON b.id = c.id) AS j;";
+    let first = format(sql, Style::River).unwrap();
+    assert!(
+        first.contains("(t2 AS b JOIN t3 AS c ON b.id = c.id) AS j"),
+        "\n{first}"
+    );
+    assert_eq!(format(&first, Style::River).unwrap(), first);
 }
