@@ -1407,6 +1407,49 @@ fn parenthesized_join_keeps_from() {
     }
 }
 
+/// https://github.com/gmr/libpgfmt/issues/77: the alias of a parenthesized
+/// JOIN group was dropped.
+#[test]
+fn aliased_join_group_keeps_alias() {
+    let sql =
+        "SELECT j.x FROM t1 AS a JOIN (t2 AS b JOIN t3 AS c ON b.id = c.id) AS j ON a.id = j.id;";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT j.x\n  FROM t1 AS a\n  JOIN (t2 AS b JOIN t3 AS c ON b.id = c.id) AS j\n    ON a.id = j.id;"
+    );
+    let sql = "SELECT j.x FROM (t2 AS b JOIN t3 AS c ON b.id = c.id) AS j;";
+    for style in [
+        Style::River,
+        Style::Mozilla,
+        Style::Kickstarter,
+        Style::PgDump,
+    ] {
+        let result = format(sql, style).unwrap();
+        assert!(
+            result.contains("(t2 AS b JOIN t3 AS c ON b.id = c.id) AS j"),
+            "\nStyle: {style}\n{result}"
+        );
+    }
+    // A multi-line group is collapsed to one line, so a second pass is stable.
+    let sql = "SELECT j.x FROM (t2 AS b\n    JOIN t3 AS c\n      ON b.id = c.id) AS j;";
+    let first = format(sql, Style::River).unwrap();
+    assert!(
+        first.contains("(t2 AS b JOIN t3 AS c ON b.id = c.id) AS j"),
+        "\n{first}"
+    );
+    assert_eq!(format(&first, Style::River).unwrap(), first);
+    // A multi-line block comment in the group is kept once, not duplicated.
+    let sql = "SELECT j.x FROM (t2 AS b /* one\ntwo */ JOIN t3 AS c ON b.id = c.id) AS j;";
+    let first = format(sql, Style::River).unwrap();
+    assert_eq!(first.matches("/* one\ntwo */").count(), 1, "\n{first}");
+    assert_eq!(format(&first, Style::River).unwrap(), first);
+    // A bare carriage return ends a line comment, so the next JOIN is kept.
+    let sql = "SELECT j.id FROM (t1 JOIN t2 USING (id) -- note\r JOIN t3 USING (id)) AS j;";
+    let result = format(sql, Style::River).unwrap();
+    assert!(result.contains("JOIN t3 USING (id)"), "\n{result}");
+}
+
 /// https://github.com/gmr/libpgfmt/issues/79: the alias of
 /// `JOIN ... USING (...) AS alias` was dropped.
 #[test]

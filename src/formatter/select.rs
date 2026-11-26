@@ -532,7 +532,7 @@ impl<'a> Formatter<'a> {
             let tables = flatten_list(from_list, "from_list");
             for table in tables {
                 if table.kind() == "table_ref" {
-                    if let Some(jt) = table.find_child("joined_table") {
+                    if let Some(jt) = join_group(table) {
                         self.collect_join_keywords_inner(jt, keywords);
                     }
                 } else {
@@ -566,7 +566,7 @@ impl<'a> Formatter<'a> {
             let mut cursor = node.walk();
             for child in node.named_children(&mut cursor) {
                 if child.kind() == "table_ref"
-                    && let Some(jt) = child.find_child("joined_table")
+                    && let Some(jt) = join_group(child)
                 {
                     self.collect_join_keywords_inner(jt, keywords);
                 }
@@ -736,9 +736,10 @@ impl<'a> Formatter<'a> {
         }
         for (i, table) in tables.iter().enumerate() {
             let is_last = i == tables.len() - 1;
-            if table.kind() == "table_ref" && table.has_child("joined_table") {
+            if table.kind() == "table_ref"
+                && let Some(jt) = join_group(*table)
+            {
                 // Table with JOINs.
-                let jt = table.find_child("joined_table").unwrap();
                 self.format_joined_table_river(jt, keyword, width, i == 0, lines);
             } else {
                 let text = self.format_table_ref(*table);
@@ -796,7 +797,7 @@ impl<'a> Formatter<'a> {
 
         // Format left side first (may be recursive).
         if let Some(left) = left_table {
-            if let Some(inner_jt) = left.find_child("joined_table") {
+            if let Some(inner_jt) = join_group(left) {
                 self.format_joined_table_river(inner_jt, keyword, width, is_first_from, lines);
             } else {
                 let text = self.format_table_ref(left);
@@ -1600,8 +1601,9 @@ impl<'a> Formatter<'a> {
         let single = tables.len() == 1;
         for (i, table) in tables.iter().enumerate() {
             let is_last = i == tables.len() - 1;
-            if table.kind() == "table_ref" && table.has_child("joined_table") {
-                let jt = table.find_child("joined_table").unwrap();
+            if table.kind() == "table_ref"
+                && let Some(jt) = join_group(*table)
+            {
                 self.format_joined_table_left_aligned(jt, keyword, lines, i == 0);
             } else {
                 let text = self.format_table_ref(*table);
@@ -1657,7 +1659,7 @@ impl<'a> Formatter<'a> {
 
         // Format left side.
         if let Some(left) = left_table {
-            if let Some(inner_jt) = left.find_child("joined_table") {
+            if let Some(inner_jt) = join_group(left) {
                 self.format_joined_table_left_aligned(inner_jt, keyword, lines, is_first);
             } else {
                 let text = self.format_table_ref(left);
@@ -2174,4 +2176,14 @@ fn dedent(text: &str, col: usize) -> String {
         out.push_str(&line[spaces.min(col)..]);
     }
     out
+}
+
+/// The JOIN group of a `table_ref`, for the JOIN walkers. An aliased group,
+/// `(a JOIN b ON ...) AS j`, is `None`: the alias needs the parentheses, so
+/// `format_table_ref` renders it as one item.
+pub(super) fn join_group(table_ref: Node<'_>) -> Option<Node<'_>> {
+    if table_ref.has_child("alias_clause") {
+        return None;
+    }
+    table_ref.find_child("joined_table")
 }
