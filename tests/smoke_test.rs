@@ -1449,4 +1449,12 @@ fn subquery_in_later_condition_keeps_river() {
         result,
         "SELECT u.id\n  FROM users AS u\n WHERE EXISTS (SELECT 1\n                 FROM r\n                WHERE r.a = 1)\n   AND u.id IN (SELECT 1\n                  FROM t\n                 WHERE t.b = 2);"
     );
+    // A non-ASCII character before the subquery must not shift its indent.
+    let sql =
+        "SELECT u.id FROM users u WHERE u.name = 'é' AND u.id IN (SELECT 1 FROM t WHERE t.b = 2);";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT u.id\n  FROM users AS u\n WHERE u.name = 'é'\n   AND u.id IN (SELECT 1\n                  FROM t\n                 WHERE t.b = 2);"
+    );
 }

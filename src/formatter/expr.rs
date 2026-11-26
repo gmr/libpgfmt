@@ -368,18 +368,18 @@ impl<'a> Formatter<'a> {
                 let mut lines = part.lines();
                 if let Some(first) = lines.next() {
                     result.push_str(first);
-                    col += first.len();
+                    col += first.chars().count();
                 }
                 for line in lines {
                     result.push('\n');
                     result.push_str(&indent_str);
                     result.push_str(line);
                     // The next part follows the last line, not the first.
-                    col = indent_str.len() + line.len();
+                    col = indent_str.len() + line.chars().count();
                 }
             } else {
                 result.push_str(part);
-                col += part.len();
+                col += part.chars().count();
             }
         }
         result
