@@ -1361,3 +1361,48 @@ fn named_function_arguments_with_comment_keep_value() {
         assert!(result.contains(&format!("days {op} 5")), "\n{result}");
     }
 }
+
+/// https://github.com/gmr/pgfmt/issues/18: the partial index predicate of
+/// an ON CONFLICT target was dropped.
+#[test]
+fn on_conflict_target_keeps_where() {
+    let sql = "INSERT INTO t (x) VALUES (1) ON CONFLICT (x) WHERE y IS NULL DO NOTHING;";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "INSERT INTO t (x)\n     VALUES (1)\nON CONFLICT (x) WHERE y IS NULL DO NOTHING;"
+    );
+    // A comment in the predicate must not swallow the rest of the clause.
+    let sql =
+        "INSERT INTO t (x) VALUES (1) ON CONFLICT (x) WHERE -- partial\n y IS NULL DO NOTHING;";
+    for &style in Style::ALL {
+        let result = format(sql, style).unwrap();
+        format(&result, style)
+            .unwrap_or_else(|e| panic!("\nStyle: {style}\nGot:\n{result}\nWhich fails: {e}"));
+        assert!(
+            result.contains("-- partial"),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+        let upper = result.to_uppercase();
+        assert!(
+            upper.contains("Y IS NULL") && upper.contains("DO NOTHING"),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+    }
+}
+
+/// https://github.com/gmr/pgfmt/issues/19: a parenthesized JOIN group in
+/// FROM was dropped with the whole FROM clause.
+#[test]
+fn parenthesized_join_keeps_from() {
+    let sql = "SELECT a.x FROM ((t1 a JOIN t2 b ON a.x=b.x) JOIN t3 c ON c.x=b.x);";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT a.x\n  FROM t1 AS a\n  JOIN t2 AS b\n    ON a.x = b.x\n  JOIN t3 AS c\n    ON c.x = b.x;"
+    );
+    for style in [Style::Mozilla, Style::Kickstarter, Style::Aweber] {
+        let result = format(sql, style).unwrap();
+        assert!(result.contains("t3 AS c"), "\nStyle: {style}\n{result}");
+    }
+}
