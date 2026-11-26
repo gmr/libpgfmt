@@ -1990,8 +1990,10 @@ impl<'a> Formatter<'a> {
         if children.is_empty() {
             return self.text(node).trim().to_string();
         }
+        // Comments are put back at a line end by restore_comments.
         let pieces: Vec<String> = children
             .into_iter()
+            .filter(|c| !c.is_extra())
             .map(|c| self.render_clause_inline(c))
             .collect();
         super::expr::join_tokens(&pieces)

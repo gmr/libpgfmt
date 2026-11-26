@@ -1372,6 +1372,18 @@ fn on_conflict_target_keeps_where() {
         result,
         "INSERT INTO t (x)\n     VALUES (1)\nON CONFLICT (x) WHERE y IS NULL DO NOTHING;"
     );
+    // A comment in the predicate must not swallow the rest of the clause.
+    let sql =
+        "INSERT INTO t (x) VALUES (1) ON CONFLICT (x) WHERE -- partial\n y IS NULL DO NOTHING;";
+    for &style in Style::ALL {
+        let result = format(sql, style).unwrap();
+        format(&result, style)
+            .unwrap_or_else(|e| panic!("\nStyle: {style}\nGot:\n{result}\nWhich fails: {e}"));
+        assert!(
+            result.contains("-- partial"),
+            "\nStyle: {style}\nGot:\n{result}"
+        );
+    }
 }
 
 /// https://github.com/gmr/pgfmt/issues/19: a parenthesized JOIN group in
