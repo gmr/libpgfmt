@@ -1406,3 +1406,29 @@ fn parenthesized_join_keeps_from() {
         assert!(result.contains("t3 AS c"), "\nStyle: {style}\n{result}");
     }
 }
+
+/// https://github.com/gmr/libpgfmt/issues/77: the alias of a parenthesized
+/// JOIN group was dropped.
+#[test]
+fn aliased_join_group_keeps_alias() {
+    let sql =
+        "SELECT j.x FROM t1 AS a JOIN (t2 AS b JOIN t3 AS c ON b.id = c.id) AS j ON a.id = j.id;";
+    let result = format(sql, Style::River).unwrap();
+    assert_eq!(
+        result,
+        "SELECT j.x\n  FROM t1 AS a\n  JOIN (t2 AS b JOIN t3 AS c ON b.id = c.id) AS j\n    ON a.id = j.id;"
+    );
+    let sql = "SELECT j.x FROM (t2 AS b JOIN t3 AS c ON b.id = c.id) AS j;";
+    for style in [
+        Style::River,
+        Style::Mozilla,
+        Style::Kickstarter,
+        Style::PgDump,
+    ] {
+        let result = format(sql, style).unwrap();
+        assert!(
+            result.contains("(t2 AS b JOIN t3 AS c ON b.id = c.id) AS j"),
+            "\nStyle: {style}\n{result}"
+        );
+    }
+}

@@ -441,7 +441,7 @@ impl<'a> Formatter<'a> {
         let joined = if node.kind() == "joined_table" {
             Some(node)
         } else {
-            node.find_child("joined_table")
+            super::select::join_group(node)
         };
         let Some(jt) = joined else {
             // Plain relation or a derived table `( SELECT … ) alias`.
