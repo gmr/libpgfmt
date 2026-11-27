@@ -1565,3 +1565,30 @@ fn subquery_in_later_join_condition_keeps_indent() {
         "SELECT a.id\nFROM a\nGROUP BY a.id\nHAVING\n    COUNT(*) > 1\n    AND MAX(a.s) = 'x\n  y';"
     );
 }
+
+/// https://github.com/gmr/libpgfmt/issues/84: layout re-indented the inner
+/// lines of a dollar-quoted value, which changed the value. Only a routine
+/// body (`AS $$...$$`) is re-indented on purpose.
+#[test]
+fn dollar_quoted_value_keeps_its_lines() {
+    let sql = "SELECT $$a\n  b$$ AS x, f($$c\n    d$$) FROM t \
+               WHERE 1 = 1 AND u.x = $tag$e\n      f$tag$ \
+               AND u.y IN (SELECT 1 FROM t WHERE t.z = $$g\n    h$$);";
+    for style in [
+        Style::River,
+        Style::Mozilla,
+        Style::Gitlab,
+        Style::Kickstarter,
+    ] {
+        let once = format(sql, style).unwrap();
+        for value in [
+            "$$a\n  b$$",
+            "$$c\n    d$$",
+            "$tag$e\n      f$tag$",
+            "$$g\n    h$$",
+        ] {
+            assert!(once.contains(value), "\nStyle: {style}\n{once}");
+        }
+        assert_eq!(once, format(&once, style).unwrap(), "\nStyle: {style}");
+    }
+}

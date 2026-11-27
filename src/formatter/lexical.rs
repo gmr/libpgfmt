@@ -258,9 +258,11 @@ pub(crate) fn strip_comments(text: &str) -> String {
 /// nothing and is left alone. Where the formatter reorders parts of a
 /// statement, it must restore each part before the reorder, as river-style
 /// CREATE TABLE does: otherwise two literals that differ only in whitespace
-/// can be paired wrongly when layout also changed one of them. Dollar-quoted bodies are excluded:
-/// their re-indentation is deliberate and decided where the body is
-/// rendered. See https://github.com/gmr/libpgfmt/issues/57.
+/// can be paired wrongly when layout also changed one of them. Routine bodies
+/// (`AS $$...$$`) are excluded: their re-indentation is deliberate and
+/// decided where the body is rendered. See
+/// https://github.com/gmr/libpgfmt/issues/57 and
+/// https://github.com/gmr/libpgfmt/issues/84.
 pub(crate) fn restore_literals(source: &str, output: &str) -> String {
     let key = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
     let source_chars: Vec<char> = source.chars().collect();
@@ -321,15 +323,16 @@ pub(crate) fn restore_literals(source: &str, output: &str) -> String {
 }
 
 /// Character ranges of the single-quoted constants and quoted identifiers in
-/// `text`, skipping comments and dollar-quoted bodies.
+/// `text`, and of the dollar-quoted constants that are not routine bodies.
+/// Comments are skipped.
 fn quoted_spans(text: &str) -> Vec<(usize, usize)> {
     let chars: Vec<char> = text.chars().collect();
     let mut spans = Vec::new();
     let mut i = 0;
     while i < chars.len() {
         if let Some((span, end)) = scan(&chars, i) {
-            let dollar = chars[i] == '$';
-            if matches!(span, Span::Literal | Span::Identifier) && !dollar {
+            let body = chars[i] == '$' && is_routine_body(&chars, i);
+            if matches!(span, Span::Literal | Span::Identifier) && !body {
                 spans.push((i, end));
             }
             i = end;
@@ -338,6 +341,23 @@ fn quoted_spans(text: &str) -> Vec<(usize, usize)> {
         }
     }
     spans
+}
+
+/// Whether the dollar-quoted constant at `chars[i]` is a routine body: the
+/// constant after `AS` in CREATE FUNCTION or CREATE PROCEDURE. Only that body
+/// is re-indented on purpose, by `format_createfunc_opt_item` in stmt.rs; a
+/// new body re-indenter must be added here too. A dollar-quoted constant
+/// anywhere else is a value, and layout must not change it.
+fn is_routine_body(chars: &[char], i: usize) -> bool {
+    let mut end = i;
+    while end > 0 && is_separator(chars[end - 1]) {
+        end -= 1;
+    }
+    let mut start = end;
+    while start > 0 && chars[start - 1].is_ascii_alphabetic() {
+        start -= 1;
+    }
+    matches!(&chars[start..end], ['a' | 'A', 's' | 'S'])
 }
 
 /// Whether moving the lines of `body` around -- re-indenting them, or joining
@@ -614,8 +634,16 @@ mod tests {
             restore_literals("f('p\nq', 'p\n  q')", "f('p\n  q', 'p\nq')"),
             "f('p\n  q', 'p\nq')"
         );
-        // Dollar-quoted bodies are not touched.
-        assert_eq!(restore_literals("$$a\nb$$", "$$a\n b$$"), "$$a\n b$$");
+        // Routine bodies are not touched.
+        assert_eq!(
+            restore_literals("AS $$a\nb$$", "AS $$a\n b$$"),
+            "AS $$a\n b$$"
+        );
+        // A dollar-quoted value is restored.
+        assert_eq!(
+            restore_literals("x = $$a\nb$$", "x = $$a\n b$$"),
+            "x = $$a\nb$$"
+        );
     }
 
     #[test]
