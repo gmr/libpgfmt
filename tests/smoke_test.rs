@@ -1474,6 +1474,46 @@ fn join_using_keeps_alias() {
     }
 }
 
+/// https://github.com/gmr/libpgfmt/issues/81: a no-break space is part of an
+/// unquoted identifier, not a token separator.
+#[test]
+fn non_ascii_space_in_identifier_is_kept() {
+    let sql = "SELECT foo\u{a0}bar FROM t;";
+    for style in [Style::River, Style::Mozilla, Style::PgDump] {
+        let result = format(sql, style).unwrap();
+        assert!(
+            result.contains("foo\u{a0}bar"),
+            "\nStyle: {style}\n{result}"
+        );
+    }
+}
+
+/// https://github.com/gmr/libpgfmt/issues/83: the part that continues an
+/// `E'...'` constant on the next line is an escape string too, so its `\'`
+/// does not end it.
+#[test]
+fn escape_string_continuation_keeps_value() {
+    let sql = "SELECT E'a'\n'b\\'  c' AS x FROM t;";
+    for style in [Style::River, Style::Mozilla, Style::PgDump] {
+        let once = format(sql, style).unwrap();
+        assert!(once.contains("'b\\'  c'"), "\nStyle: {style}\n{once}");
+        assert_eq!(once, format(&once, style).unwrap(), "\nStyle: {style}");
+    }
+}
+
+/// A space at the end of an inner line of a dollar-quoted constant is data.
+#[test]
+fn dollar_string_keeps_trailing_space_on_inner_line() {
+    let sql = "SELECT $$a\nb \nc$$ || x AS y FROM t;";
+    for style in [Style::River, Style::Mozilla, Style::PgDump] {
+        let result = format(sql, style).unwrap();
+        assert!(
+            result.contains("$$a\nb \nc$$"),
+            "\nStyle: {style}\n{result}"
+        );
+    }
+}
+
 /// https://github.com/gmr/pgfmt/issues/20: a subquery in an AND/OR
 /// condition after the first was indented by the condition's column in the
 /// AND/OR chain, on top of its river position.

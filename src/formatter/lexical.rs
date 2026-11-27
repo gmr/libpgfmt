@@ -31,7 +31,7 @@ pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
         '\'' => Some((Span::Literal, quoted_end(chars, i + 1, false))),
         '"' => Some((Span::Identifier, identifier_end(chars, i + 1))),
         'E' | 'e' if chars.get(i + 1) == Some(&'\'') && !continues_identifier(chars, i) => {
-            Some((Span::Literal, quoted_end(chars, i + 2, true)))
+            Some((Span::Literal, escape_end(chars, i + 2)))
         }
         '$' if !continues_identifier(chars, i) => {
             dollar_end(chars, i).map(|end| (Span::Literal, end))
@@ -39,7 +39,7 @@ pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
         '-' if chars.get(i + 1) == Some(&'-') => {
             let end = chars[i..]
                 .iter()
-                .position(|c| matches!(c, '\n' | '\r'))
+                .position(|c| is_newline(*c))
                 .map_or(chars.len(), |p| i + p);
             Some((Span::LineComment, end))
         }
@@ -52,6 +52,18 @@ pub(crate) fn scan(chars: &[char], i: usize) -> Option<(Span, usize)> {
         }
         _ => None,
     }
+}
+
+/// A newline to the PostgreSQL lexer: `newline [\n\r]` in `scan.l`.
+fn is_newline(c: char) -> bool {
+    matches!(c, '\n' | '\r')
+}
+
+/// Whitespace that separates tokens: `space [ \t\n\r\f\v]` in `scan.l`.
+/// Other Unicode whitespace, such as U+00A0, is a character of an unquoted
+/// identifier, so it must not be collapsed.
+pub(crate) fn is_separator(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c' | '\x0b')
 }
 
 /// Whether `chars[i]` continues the identifier before it, in which case no
@@ -78,6 +90,33 @@ fn quoted_end(chars: &[char], mut i: usize, escapes: bool) -> usize {
         }
     }
     chars.len()
+}
+
+/// End of an `E'...'` constant whose body starts at `i`, with the parts that
+/// continue it. PostgreSQL joins a constant and a part after a line break
+/// into one value, and that part is an escape string too: `\'` in it is an
+/// escaped quote, not the end. Scanned alone, the part ends early there.
+/// A `--` comment can sit between the parts (`quotecontinue` in `scan.l`).
+fn escape_end(chars: &[char], i: usize) -> usize {
+    let mut end = quoted_end(chars, i, true);
+    loop {
+        let mut j = end;
+        while j < chars.len() {
+            if is_separator(chars[j]) {
+                j += 1;
+            } else if chars[j] == '-' && chars.get(j + 1) == Some(&'-') {
+                while j < chars.len() && !is_newline(chars[j]) {
+                    j += 1;
+                }
+            } else {
+                break;
+            }
+        }
+        if chars.get(j) != Some(&'\'') || !chars[end..j].iter().any(|c| is_newline(*c)) {
+            return end;
+        }
+        end = quoted_end(chars, j + 1, true);
+    }
 }
 
 /// End of a quoted identifier whose body starts at `i`. A doubled quote is an
@@ -116,11 +155,11 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
             i = end;
             continue;
         }
-        if c.is_whitespace() {
+        if is_separator(c) {
             let mut j = i;
             let mut saw_newline = false;
-            while j < chars.len() && chars[j].is_whitespace() {
-                saw_newline |= chars[j] == '\n';
+            while j < chars.len() && is_separator(chars[j]) {
+                saw_newline |= is_newline(chars[j]);
                 j += 1;
             }
             let between_literals =
@@ -141,6 +180,39 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
         i += 1;
     }
     out
+}
+
+/// Apply [`collapse_whitespace`] to each line of `text`, but keep the
+/// indentation of each line. Only a newline outside every constant and
+/// comment starts a line, so the lines of a multi-line constant stay as
+/// they are.
+pub(crate) fn collapse_lines(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < chars.len() {
+        if let Some((_, end)) = scan(&chars, i) {
+            i = end;
+        } else if chars[i] == '\n' {
+            lines.push(&chars[start..i]);
+            i += 1;
+            start = i;
+        } else {
+            i += 1;
+        }
+    }
+    lines.push(&chars[start..]);
+    lines
+        .into_iter()
+        .map(|line| {
+            let leading = line.iter().take_while(|c| c.is_whitespace()).count();
+            let prefix: String = line[..leading].iter().collect();
+            let rest: String = line[leading..].iter().collect();
+            prefix + &collapse_whitespace(&rest)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// `text` with each comment replaced by a space. Literals and quoted
@@ -418,7 +490,7 @@ fn line_end(chars: &[char], from: usize) -> (usize, bool) {
         if let Some((span, end)) = scan(chars, i) {
             has_comment |= span == Span::LineComment;
             i = end;
-        } else if chars[i] == '\n' {
+        } else if is_newline(chars[i]) {
             return (i, has_comment);
         } else {
             i += 1;
@@ -490,6 +562,21 @@ mod tests {
         assert_eq!(collapse_whitespace("f(a, -- why\n  b)"), "f(a, -- why\nb)");
         assert_eq!(collapse_whitespace("'foo'\n   'bar'"), "'foo'\n'bar'");
         assert_eq!(collapse_whitespace("'a  b' \"c  d\""), "'a  b' \"c  d\"");
+        // https://github.com/gmr/libpgfmt/issues/81
+        assert_eq!(collapse_whitespace("E'a'\n'b\\'  c'"), "E'a'\n'b\\'  c'");
+        assert_eq!(
+            collapse_whitespace("E'a' -- c\n'b\\'  d'"),
+            "E'a' -- c\n'b\\'  d'"
+        );
+        assert_eq!(
+            collapse_whitespace("E'a'\n-- c\n'b\\'  d'"),
+            "E'a'\n-- c\n'b\\'  d'"
+        );
+        assert_eq!(collapse_whitespace("'a'\n'b\\'  c'"), "'a'\n'b\\' c'");
+        assert_eq!(collapse_whitespace("'a'\r'b'"), "'a'\n'b'");
+        assert_eq!(collapse_whitespace("f(a, -- why\r  b)"), "f(a, -- why\nb)");
+        assert_eq!(collapse_whitespace("a -- c\rb"), "a -- c\nb");
+        assert_eq!(collapse_whitespace("foo\u{a0}bar  x"), "foo\u{a0}bar x");
     }
 
     #[test]
@@ -566,6 +653,18 @@ mod tests {
                 restored
             );
         }
+        // A bare carriage return ends the line, also after a line comment.
+        let chars: Vec<char> = "a -- c\rb\nd".chars().collect();
+        assert_eq!(line_end(&chars, 1), (6, true));
+        assert_eq!(
+            restore_comments(
+                "SELECT a -- x",
+                &[(9, "-- x".to_string())],
+                "SELECT a -- y\rFROM t"
+            )
+            .unwrap(),
+            "SELECT a -- y\n-- x\rFROM t"
+        );
         // The anchor was rewritten: no place for the comment.
         assert!(
             restore_comments(
